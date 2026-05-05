@@ -1,0 +1,68 @@
+//**************************** __ Date in Mongo __ *******************************
+1) Num of mililisec from Epoch start (1/01/1970)
+2) Only UTC format - any convertations on UI/server logic side, but not in Mongo
+3) Month counter starts from 0 (January)
+4) Days of week starts from 0 (Sunday).  = JS
+    Using $dayOfWeek we'll get 1(Sunday) and 7(Saturday) = USA/DB
+    Using $isoDayOfWeek we'll get 1(Monday) and 7(Sunday) = EU
+5) Any Date in Mongo takes 8 byte, saved as BSON 
+
+
+//**************************** __ OPERATIONS __ *******************************
+
+Creation:
+    1) new Date() / new Date("2026-01-01")
+    2) ISODate() / ISODate("2026-01-01T10:00:00Z")
+
+- whithout "new" keyword Date() will return String instead of Date
+- use date as String = bad practices, cause no math operation will be allowed for it.
+
+getDay()                    = takes it from your OS system
+getUTCDay()                 = takes it from Mongo DB 
+
+//**************************** __ Date __ *******************************
+Date.now()              = get time in miliseconds passed from 01 Jan 1970
+new Date()              = get time in ISO format 
+new Date().getTime()    = same as Date.now() 
+
+Create date 
+    new Date("2026-01-01")                    // from String
+    new Date(2026, 0, 1)                      // from template
+    new Date(1746172800000)                   // from miliseconds
+    new Date("2026-01-01T00:00:00.000Z")      // from ISO string
+
+//**************************** __ ObjectId __ *******************************
+
+.getTimestamp()     = extract data in miliseconds from ObjectId
+.toString()         = return String representation of ObjectId
+.valueOf()          = return String representation of ObjectId
+.equals()           = compare 2 ObjectId
+.createFromTime()   = create ObjectId with only timestamp filled and all others are zeros. Works with SECONDS!        
+.toHexString()      = create HEX String of ObjectId
+
+
+//**************************** __ SEARCH PATTERNS __ *******************************
+1) search all docs that are younger than X days:
+
+    db.collection.find({ _id: { $gte: ObjectId.createFromTime(Date.now ()/1000 - X*24*60*60)}}) 
+
+2) search all docs created today:
+
+    const startOfDay = new Date()
+    startOfDay.setHours(0, 0, 0, 0)
+    const endOfDay = new Date()
+    endOfDay.setHours(23, 59, 59, 999)
+    db.collection.find({ _id: {
+        $gte: ObjectId.createFromTime(startOfDay.getTime() / 1000),
+        $lte: ObjectId.createFromTime(endOfDay.getTime() / 1000)
+    }})
+
+3) search all docs created between:
+    const from = new Date("2026-01-01")
+    const to   = new Date("2026-03-01")
+
+    db.collection.find({ _id: {
+            $gte: ObjectId.createFromTime(from.getTime() / 1000),
+            $lte: ObjectId.createFromTime(to.getTime() / 1000)
+        }
+    })

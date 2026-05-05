@@ -1,0 +1,156 @@
+JSON 
+    (JavaScript Object Notation) = text format, Human-readable.
+    Has less formats of data: string, number, boolean, null, array, object.
+    Serialization faster as doc format more easy
+    Deserialization slower as we need string parsing
+    Search by fields very slow
+    Doc size is less - no metadata in doc saved
+    Used in REST API, config
+
+
+BSON (Binary JSON)  = binary JSON
+    Has more formats of data: JSON formats + Date, double, int32, int64, Binary, Regex, Timestamp
+    Documen structure:
+        [4 bytes: doc size]
+        [1 byte: type] [key\0] [value]
+        [1 byte: type] [key\0] [value]
+        [0x00: EOF]
+    Used in Mongo to save data
+
+General structure of Mongo DB:
+    Database    = SQL DB
+    Collection  = SQL Table
+    Document    = SQL record
+
+//**************************** __ DB ACTIONS __ *******************************
+Create DB method:
+    DB table will be created on disc when
+    1) use db-name AND
+    2) Executed any action to write data on disk inside this DB
+
+    Actions for create data on disc:
+        insertOne/Many, 
+        updateOne/Many with upsert flag, 
+        create index, 
+        create collection, 
+        create user/role
+
+    Example:
+        db.createCollection(
+            "logs",                 // collection name 
+            {
+                capped: true,       // round collection
+                size: 1048576,      // max 1 Mb
+                max: 1000           // max 1000 docs
+            })
+
+
+Change DB name:
+    No option for simple change. Need to create a new DB and copy data from the old.
+        mongodump -d old_db
+        mongorestore -d new_db --dir dump/old_db
+        use old_db
+        db.dropDatabase()
+
+Delete DB:
+    db.dropDatabase() -  will delete the DB with wich you are currantly stay on
+
+Show currently used DB:
+    db
+
+Show list of DBs:
+    show dbs
+
+//**************************** __ COLLECTION ACTIONS __ *******************************
+Create collection:
+    1) clear command for creation: db.createCollection("new_collection_name", { options })
+    2) insert data command into collection: db.new_collection.insertOne({x: 1}) 
+    3) update command with upsert flag true: db.new_coll.updateOne({id: 1}, {$set: {name: "test"}}, {upsert: true})
+    4) operators $out or $merge 
+    5) create index: db.new_collection.createIndex({ serial: 1 })
+    6) create view: db.createView("view_name", "source_coll", [ { $match: {...} } ])
+    7) using outer utilities of import / restoring data
+
+Rename collection:
+    1) db.old_name.renameCollection("new_name") = will block whole DB(!!!) while renaming, keep indexes
+        inside it - adminCommand({ renameCollection: ... })
+    2) db.old_name.aggregate([ { $out: "new_name" } ])  = do not copy indexes
+        db.old_name.drop()
+    3) db.old_name.aggregate([ { $merge: { into: "new_name" } } ])  = do not copy indexes
+    4) mongodump -d db_name -c old_name
+       mongorestore -d db_name -c new_name --dir dump/db_name/old_name.bson
+
+Delete collection:
+    1) db.collection_name.drop()
+    2) db.runCommand({ drop: "collection_name" }) = return detailed report of deletion
+    3) Change TTL indexes of collection
+    4) Delete files .wt related to the collection from data/db. Could crash DB metadata
+
+
+//**************************** __ CAPPED COLLECTION __ *******************************
+    1) Specific doc can't be deleted only all collection
+    2) Works as round array - once reach limit of number, new elements will replece old
+    3) Used for logs/cache.
+
+
+//**************************** __ ADDITIONAL __ *******************************
+Single document size up to 16 Mb (this is BSON restriction)
+Mongo is case sensitive
+ObjectID = 12 byte (4 timestamp + 5 random + 3 counter) 
+    5 random changed from Machine+ProcessesNum due to:
+        - Docker issue (same numbers - could lead to collision)
+        - Attack vector
+
+
+//**************************** __ ID __ *******************************
+_id could be any except an Array:
+    1) String:
+        db.users.insertOne({_id: "user_asd_777", name: "QWERTY", age: 25})
+    2) Object:
+        db.passports.insertOne({_id: { country: "IL", series: 0123, number: 123456 }, status: "active"})
+    3) Standard UUID:
+        db.clients.insertOne({_id: UUID(), name: "rty"})
+
+_id value can't be changed - only via Delete & Insert new document.
+In Mongo no AUTO_INCREMENT.
+
+
+//**************************** __ ObjectId  __ *******************************
+12 bytes as following:
+    4 bytes = Unix timestamp start from 01 Jan 1970. getTimestamp = return time of creation
+    5 bytes = Random value
+    3 byte = Increment counter, can include up to 16M values
+
+
+//**************************** __ mongod __ *******************************
+mongod = Main process in MongoDB. Grant access to data, cache and execute the requests.
+To stop the process never use kill -9 it can damage data!!! Always use shutdownServer() or SIGTERM.
+
+
+//**************************** __ dbpath __ *******************************
+Path to folder where BSON files will be saved. In case you have some DB instances each one should has it's own dbpath.
+Otherwise  the second and others instances will be blocked with Lock-file error.
+
+
+//**************************** __ bindIp __ *******************************
+Config parameter defined which Ips are allowed to connect to DB.
+Set 0.0.0.0 (listen to all) only if you have firewall & configured authorization.
+Should be no spaces between IP address and "," and next IP address.
+By default it's listen to 127.0.0.1. In case of empty - behavior depend on version
+
+
+//**************************** __ Port __ *******************************
+Mongo port by default is 27017. Each DB instance on the same machine should has its own port.
+
+
+//**************************** __ logpath __ *******************************
+Path to system log file of Mongo. Need to be configured with log rotation!
+
+
+//**************************** __ logappend __ *******************************
+Restart without this argument will remove the old log!!!! 
+
+
+
+Run Mongo from CLI:
+    mongod --dbpath /data/db_office --port 27018 --bind_ip 127.0.0.1,192.168.1.50 --logpath /var/log/mongodb/office.log --logappend --fork
