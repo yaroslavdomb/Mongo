@@ -1,0 +1,110 @@
++---------+---------------------------------+-----------------------------------------------------------------------------------------------+
+|Done/Day | Common topic                    | Specific points                                                                               |
++---------+---------------------------------+-----------------------------------------------------------------------------------------------+
+|                                                       LVL: __ JUNIOR __                                                                   |
++---------+---------------------------------+-----------------------------------------------------------------------------------------------+
+|  1 | 1  | Basis and data types            | JSON/BSON, db/Collection creation, _id structure & creation, mongod, bindIp, port, logpath    |
+|  1 | 2  | Times (Date)                    | new Date()/ISODate, UTC, specific data creation, filter by date                               |
+|  1 | 3  | Create/Insert, Bulk Operation   | insertOne/Many, options (writeConcern/ordered/...), response structure, bulkWrite             |
+|  1 | 4  | Read                            | find/One(), Query/Projection/Options, estimatedDocumentCount, countDocuments, distinct        |
+|  1 | 5  | Update/Delete                   | updateOne/Many (set/unset/inc/push/addToSet/...), deleteOne/Many, replaceOne                  |
+|  1 | 6  | Query Operators                 | gt/lt/gte/lte/in/and/or/exists/type/not/nor/ne/regex/mod/text/where                           |
+|  1 | 7  | Array Operators                 | push/pop/pull/pullAll/addToSet/elemMatch/all/size/sort/each/slice                             |
+|  1 | 8  | UI-Clients (Local)              | MongoDB Compass/Studio 3T/NoSQLBooster, requests/explain/import/export in Compass             |
+|  1 | 9  | UI-Clients (Cloud)              | MongoDB Atlas, registration/configuration/requests/explain/import/export in Atlas             |
+|  1 | 10 | Data Modeling                   | Embedding(Normalization) vs Referencing(De-Normalization), 1:1, 1:N, N:N                      |
+|  1 | 11 | Indexing (intro)                | Simple/complex indexes, explain(), name/sparse/unique/hidden/TTL, Intersection, Prefixes      |
+|  1 | 12 | Schema Validation (intro)       | Required Fields/Type Checking/Validation Level/Conditional validation/Validation in Compass   |
+|  1 | 13 | Cursor                          | Lifecycle, Tailable, hasNext/next/toArray/map/forEach/limit/skip/noCursorTimeout/batchSize    |
+|  1 | 14 | Drivers, Connection             | Batching, Connection String/errors/Pooling, DB Drivers, Tagging                               |
+|  1 | 15 | Transactions                    | Oplog, ACID/BASE Properties, Multi-Document Transactions, Session API, Read/Write сoncerns    |
+| 0.5| 16 | Full-text Search                | Text indexes, $text, $search, Regex requests, Atlas Search (Lucene)                           |
+|  1 | 17 | Aggregation-1                   | $match/$project/$sort/$skip/$limit/$out/$merge/$set/$group/$sum/$avg/$min/$max/$push/$facet   |
+|  1 | 18 | Aggregation-2                   | expr/cond/switch/dateToString/lookup/addFields/ifNull/unwind/filter/reduce/arrayElemAt        |
+|  1 | 19 | Views                           | createView(), $merge in view context, read-only/on-demand                                     |
+|  1 | 20 | Security (intro)                | db.createUser(), roles (readWrite, dbAdmin), --auth                                           |
+| 0.5| 21 | Practice && Test                | Перенос SQL схемы в Mongo + базовые отчеты (Aggregation)                                      |
++---------+---------------------------------+-----------------------------------------------------------------------------------------------+
+|                                                       LVL: __ MIDDLE __                                                                   |
++---------+---------------------------------+-----------------------------------------------------------------------------------------------+
+|  1 | 22 | Replica Set                     | Configuration, Primary/Secondary/Arbiter, Heartbeats/Elections/Rollbacks, Replication Lag     |
+|  1 | 23 | Consistency & Durability        | Read/Write Concern (w, j, timeout, comment, nearest, collation, snapshot), journaling         |
+|  1 | 24 | Sharding                        | Sharded structure, Shard Keys, Data balancing, Sharding types, Orphan Documents, limitations  |
+|  1 | 25 | WiredTiger + Connection Pooling | WT: caching/yelding/locking/compression, MVCC, checkpoint, Read-only/In-Memory, CP:all params |
+|  1 | 26 | Transaction fail && Retry Logic | Transaction errors, Callback/Core API, Retryable W/R, Causally Consistent Sessions            |
+|      27 | Advanced Joins/Atlas Serverless | $lookup: join with pipeline, uncorrelated subqueries, concise syntax, Atlas Triggers (Database/Scheduled), Atlas Functions intro                                                                                              |
+|      28 | Practice: High Availability     | Deploying 3-node Replica Set (Docker/Local), Read Preference                                  |
+|      29 | Indexing (advanced)             | Partial, Multikey indexes, Covered Queries                                                    |
+|      30 | Optimization Tools              | Database Profiler (system.profile), Explain (executionStats)                                  |
+|      31 | Performance Tuning              | ESR rule, Collation, Working Set vs RAM                                                       |
+|      32 | Aggregation (advanced)          | $facet, $bucket, $graphLookup (recursion)                                                     |
+|      33 | Change Streams                  | Real-time tracking изменений, Watchers, Resume Tokens                                         |
+|      34 | Security & Encryption           | Encryption at Rest, TLS/SSL, Auditing                                                         |
+|      35 | Practice: Tuning                | Оптимизация тяжелого запроса через анализ плана                                               |
+|      36 | Backup & Recovery               | Mongodump/Mongorestore, Mongoexport/Mongoimport                                               |
+|      37 | Monitoring                      | Free Cloud Monitoring, mongostat, mongotop                                                    |
+|      38 | GridFS                          | Saving files with size > 16MB, chunks, fs.files & fs.chunks                                   |
+|      39 | Data Lifecycle                  | Capped Collections, Archive strategy                                                          |
+|      40 | Schema Validation (advanced)    | JSON Schema, validationLevel, validationAction                                                |
+|      41 | Migration & Patterns            | Outlier Pattern, Computed Pattern, Extended Reference                                         |
+|      42 | Финальный проект && Test        | Проектирование шардированной системы с валидацией схем                                        |
++---------+---------------------------------+-----------------------------------------------------------------------------------------------+
+|                                                       LVL: __ SENIOR __                                                                   |
++---------+---------------------------------+-----------------------------------------------------------------------------------------------+
+|      43 | OS & Hardware Tuning            | NUMA, Swap, RAM кэширование, дисковая подсистема                                              |
+|      44 | WiredTiger Deep Dive            | Eviction policy, Fragmentation, B-Tree, Ticket System                                         |
+|      45 | Anti-Patterns (Schema)          | Massive Docs, Unbounded Arrays, Too many collections                                          |
+|      46 | Anti-Patterns (Queries)         | Case-insensitive без индексов, Regex без якоря, Scan                                          |
+|      47 | Geo-Spatial Data                | 2dsphere indexes, $near, $geoWithin, карты                                                    |
+|      48 | Special Index Types             | Wildcard, Hashed, Clustered Collections                                                       |
+|      49 | Advanced Sharding               | Refine Shard Key, Resharding (v5.0+), Zone Sharding                                           |
+|      50 | Capacity Planning               | ops/sec → tier, рост данных → сроки шардирования, WiredTiger cache sizing под workload        |
+|      51 | Cloud Architecture              | Atlas: Private Link, Peering, Global Clusters                                                 |
+|      52 | Multitenancy Patterns           | db-per-tenant vs collection-per-tenant vs discriminator, связь с Zone Sharding                |
+|      53 | SRE: Disaster Recovery          | Восстановление при полной потере ДЦ                                                           |
+|      54 | SRE: Automation                 | Kubernetes Operator, Terraform, Ansible                                                       |
+|      55 | Advanced Security + CSFLE       | Encryption at Rest, TLS/SSL, Auditing, Client-Side Field Level Encryption                     |
+|      56 | Queryable Encryption            | v6.0+, equality/range по зашифрованным полям, финтех use cases                                |
+|      57 | Time Series Collections         | Специфические коллекции для дат, granular control                                             |
+|      58 | Online Archive (Atlas)          | Cold data → объектное хранилище, прозрачный querying, Data Lifecycle связка                   |
+|      59 | Atlas Vector Search             | $vectorSearch, embeddings, kNN, hybrid search, AI/ML use cases                                |
+|      60 | Migration Strategies            | Zero-downtime migration, MongoSync, синхронизация                                             |
+|      61 | Diagnostics & Debugging         | Дампы памяти, ftdc, Full Time Diagnostic Data                                                 |
+|      62 | Custom JS & Server Side         | $accumulator, $function, почему это плохо                                                     |
+|      63 | Финальный Проект && Test        | High-Load система: Шардирование + Репликация + SRE                                            |
++---------+---------------------------------+-----------------------------------------------------------------------------------------------+
+|                                                     LVL: __ SOLUTION ARCHITECT __                                                         |
++---------+---------------------------------+-----------------------------------------------------------------------------------------------+
+|      64 | Event-Driven Architecture       | Change Streams deep dive, Integration with Kafka/RabbitMQ, Transactional Outbox Pattern       |
+|      65 | Advanced Modeling Patterns      | Polymorphic Pattern, Schema Versioning, Handling Large Documents (Bucketing/Outlier)          |
+|      66 | Zero-Downtime Migrations        | Live Resharding, Incremental Migration strategies, MongoSync, Double Writing technique        |
+|      67 | Multi-Cloud & Hybrid            | AWS/Azure/GCP cross-cloud clusters, Network Peering, Private Link, Latency optimization       |
+|      68 | Multi-tenancy & Isolation       | Database-per-tenant vs Discriminator, Zone Sharding for Data Sovereignty (GDPR/Compliance)    |
+|      69 | Global Clusters                 | Global Writes, Local Reads, Conflict resolution in geo-distributed systems, Static Clusters   |
+|      70 | WiredTiger: Internals 1         | Journaling mechanics, Checkpoints impact on I/O, Dirty Data eviction, Write-Ahead Logging     |
+|      71 | OS & Kernel Tuning              | Linux swapiness, Transparent Huge Pages (THP), NUMA architecture, Disk I/O schedulers         |
+|      72 | Advanced Diagnostics            | FTDC (Full Time Diagnostic Data) analysis, system.profile deep analysis, Memory dump reading  |
+|      73 | Network & Replication Lag       | MTU impact, Compression (snappy/zlib/zstd), Heartbeat frequency, TCP Keepalive tuning         |
+|      74 | Disaster Recovery (SRE)         | Point-in-Time Recovery (PITR), Oplog window sizing, Cross-region failover automation          |
+|      75 | Forensic & Audit                | Advanced Auditing, Tracking field-level changes, Compliance reporting (SOC2/PCI-DSS)          |
+|      76 | AI & Vector Search              | $vectorSearch, kNN, ANN, Integration with LangChain/LlamaIndex, RAG Architecture              |
+|      77 | Advanced Encryption             | Queryable Encryption v2, Range/Equality queries on encrypted data, Key Vault Management       |
+|      78 | Atlas Search Nodes              | Dedicated Search Nodes, Scaling Lucene indexes separately from data-bearing nodes             |
+|      79 | Serverless & Data API           | MongoDB Data API (HTTPS), App Services, Realm Sync, Function-as-a-Service integration         |
+|      80 | Workload-Specific Tuning        | Write-heavy (IoT) vs Read-heavy (Catalog), In-Memory Storage Engine usage                     |
+|      81 | Competition Analysis            | Deep comparison: MongoDB vs Cassandra vs Elasticsearch vs DynamoDB (Architectural trade-offs) |
+|      82 | Read/Write Consistency          | Causal Consistency, Snapshot Read Concern, Session-level guarantees, Linearizability          |
+|      83 | Automation & IaC                | Terraform for Atlas, Kubernetes Operator (Advanced), Ansible for self-managed clusters        |
+|      84 | Final Capstone Project          | Designing a Global Sharded System: Geo-spatial + Vector Search + Field-level Encryption       |
++---------+---------------------------------+-----------------------------------------------------------------------------------------------+
+
+Middle
+нет темы    
+    $lookup — расширенные сценарии
+    День 18 упоминает $lookup, но нет: uncorrelated subqueries, $lookup + $pipeline, concise syntax (v5.0+). Частый вопрос на собеседованиях.
+нет темы
+    Atlas Triggers / Scheduled Triggers
+    Serverless функции и триггеры в Atlas — распространённый use case на middle уровне, связан с Change Streams (день 33).
+нет темы
+    Мониторинг через Atlas (платный tier)
+    День 37 покрывает только free monitoring + mongostat/mongotop. Нет: Performance Advisor, Real-Time Performance Panel, Alerts в Atlas.
