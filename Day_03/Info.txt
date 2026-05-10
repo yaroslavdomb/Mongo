@@ -1,0 +1,121 @@
+//*********************** __ OPERATIONS __ *******************************
+1) insertOne = insert one document
+    Schema:
+        db.<db_name>.insertOne({data},{options})
+    
+    Example:
+        db.users.insertOne(
+            { name: "Alice", age: 25 },
+            {
+                writeConcern: { 
+                    w: "majority", 
+                    j: true, 
+                    wtimeout: 2000 
+                },
+                bypassDocumentValidation: true,
+                comment: "New user registration"
+            }
+        )
+        
+        Fields:
+            writeConcern = conditions for confirming a successful write
+                w = (weight) Majority means most of replicas must confirm, 1 = (default) only primary confirm, 0 = don't wait for response at all
+                j = (journal) true/false(default). Wait or not for data to be written in journal 
+                wtimeout = (wait timeout) Wait for responses of replicas, miliseconds
+
+            bypassDocumentValidation = could skip validation schema (if such defined in DB)
+
+            comment = comment
+        
+    Inside:
+        1) If you have _id - check uniquiness. If no - generate automatically.
+        2) field names should not have inside dot and $
+        3) Check the document size (should be less than 16Mb)
+
+    Errors:
+        1) WriteConcernError - due to issues with replicas
+        2) DocumentValidationFailure - doc not passed validation schema & bypassDocumentValidation is Off
+        3) WriteError - some other error (for example disc is full)
+
+    Return:
+        {        
+            acknowledged: true/false,                               // false if w:0 (no confirmation in write concern)
+            insertedId: ObjId: {_id: <id of new created object>}    // will be returned even I created it by myself and passed as param of insert command 
+        }
+
+
+1) insertMany = insert number of documents, not atomic(!) 
+    
+    Schema
+        db.<db_name>.insertOne({data1},{data2},{data3},...,{options})
+
+    Example:
+        db.collection.insertMany([
+                { _id: 1, val: "A" },
+                { _id: 1, val: "B" },           // ID duplication !!!
+                { _id: 2, val: "C" }
+            ], 
+            { ordered: true }
+        )
+
+        Fields:
+            ordered = true(default)/false - If to skipp all others docs insertion after the first error. All the docs before the error will be inserted into DB.
+
+            writeConcern = conditions for confirming a successful write
+                w = (weight) Majority means most of replicas must confirm, 1 = (default) only primary confirm, 0 = don't wait for response at all
+                j = (journal) true/false(default). Wait or not for data to be written in journal 
+                wtimeout = (wait timeout) Wait for responses of replicas, miliseconds
+
+            bypassDocumentValidation = true/false Skip validation schema (if such defined in DB)
+
+            comment = comment
+    
+    Return:
+        Result: {
+            ok: 1,                                  // System accept the command, 1 = request accepted and executed
+            writeErrors: [                          // Error explanation
+                {
+                    index: 1,                       // Index of problematic doc
+                    code: 11000,
+                    errmsg: "E11000 duplicate key error...",
+                    op: { _id: 1, val: "B" }        // Original problematic data
+                }
+            ],
+            insertedIds: { '0': 1 },                // Inserted docs list
+            nInserted: 1                            // Totally inserted successfully
+        }
+
+//*********************** __ bulkWrite __ *******************************
+Used for:
+    Allow to do 1 request to execute number of actions over documents. Not atomic. 
+
+Example:
+    db.collection.bulkWrite([
+        { 
+            insertOne: { 
+                document: { type: "purchase", amount: 500, date: new Date() } 
+            } 
+        },
+        { 
+            updateOne: { 
+                filter: { _id: "user_123" }, 
+                update: { $inc: { totalSpent: 500 }, $set: { lastActive: new Date() } } 
+            } 
+        },
+        {
+            replaceOne: {
+                filter: { userId: "user_123", type: "temp_config" },
+                replacement: { userId: "user_123", type: "permanent_config", version: 2.0 }
+            }
+        },
+        { 
+            deleteOne: { 
+                filter: { couponCode: "DISCOUNT2026" } 
+            } 
+        }
+    ], 
+    { 
+        ordered: true,                  // Operations will be executed one-by-one, in sequence 
+        writeConcern: { w: 0 }          // Do not wait for any confirmation
+    });             
+    

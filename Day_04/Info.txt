@@ -1,0 +1,187 @@
+//***************** __ FIND __ ********************
+Return: null (if not found) OR cursor (due to this you can use cursor with dot out of the find object)
+Schema:
+    db.collection.find(query, projection).cursor
+
+Example:
+    db.products.find(
+        { price: { $lte: 1000 }, category: "Laptops" }, // Query
+        { model: 1, price: 1, _id: 0 },                 // Projection
+        { model: 1, price: 0, _id: 0 },                 // ERROR - you can't mix what you want to see and what you do not  
+    )
+    .sort({ price: -1 })                                //cursor method 1
+    .skip(20)                                           //cursor method 2
+    .limit(10)                                          //cursor method 3
+
+    ATTENTION - MongoDB in find() ALWAYS do skip __BEFORE__ limit !!!
+        In case you want to change the order - you need to use agregation pipline
+
+    Fields:
+        Query = criterias to do filtration of documents
+        Projection = select the fields we need (in SQL it's SELECT). 0 - don't retrieve, 1 - retrieve
+                    It works in show XOR hide mode fore all the fields except _id
+                    SHOW = you list all the fields you want to see setting "1". All others will be hidden
+                    HIDE = you list all the fields you want to hide by setting "0". All others will be visible
+                    The only field that can be listed with other value (1 for HIDE or 0 for SEE mode) is _id
+        Cursor = cursor modifiications
+            sort({<data>:-1})       = sort result by <data>. If 1 - in ASC order, if -1 - in DESC order
+            limit(X)                = max X docs to return
+            skip(X)                 = skip first X docs
+            count()                 = num of find docs
+            pretty()                = docs formating in specific type
+            hint("indx_name")       = force to use index on name
+            maxTimeMS(X)            = restrict execution time in X miliseconds
+            comment("slow_query")   = comment 
+            allowDiskUse()          = allow use disc space if sorting takes more than 100 Mb
+            batchSize(X)            = num of docs per batch
+            explain("executionStats") = show execution plan instead of execution itself
+            noCursorTimeout()       = do not close cursor after timeout
+
+//***************** __ FIND ONE __ ********************
+Return: 
+    null (if not found) OR document (due to this you can't use cursor with dot out of the find object).
+    It will return the most first document found after search. Whithout any restrictions it will go by _id.
+    Having sort (for example) it will firstly do sort and then return the first document after search in sorted docs, 
+    so _id will not play major role. As best practices it's better to add to sort list _id as second arg, so first it 
+    will sort list by your first criteria and then - by _id.
+
+    Syntaxis sugar for 
+        db.collection.find({...}).limit(1).next()   //whithout next() we'll still get the cursor, next() convert it to doc
+
+Schema:
+    db.collection.find(query, projection, cursor)
+
+Example:
+    db.employees.findOne(
+        // Query
+        { 
+            "department": "IT", 
+            "city": "NY", 
+            "tags": { "$all": ["javascript", "mongodb"] } 
+        },
+        
+        // Projection
+        { 
+            "name": 1, 
+            "skills": 1, 
+            "age": 1,
+            "_id": 0 
+        },
+        
+        // Options
+        { 
+            "sort": { "age": 1 },               //youngest first
+            "skip": 2,                          //skip first 2 persons
+            "hint": "dept_city_age_index",      // use index
+            "comment": "Admin: finding 3rd youngest IT expert",
+            "readPreference": "secondary"       //use replica to not overload master
+        }
+    )
+
+//***************** __ SEARCH IN COMPLEX OBJ __ ********************
+    In case we have object 
+        {
+            _id: ObjectId('69dfcd3602bbba55a82d2f83'),
+            item: 'journal',
+            qty: 25,
+            size: {
+                h: 14,
+                w: 21,
+                uom: 'cm'
+            },
+            status: 'A'
+        }
+    
+    There could be 2 options:
+        1) db.inventory.find({size: {"h":14, "w":21, "uom":"cm"}}) = full search as per internal structure of size (there should be doc with exactly 3 fields with the same order of appearance) 
+        2) db.inventory.find({"size.h":14, "size.w":21, "size.uom":"cm"}) = search according to the mentioned fields, irrelevant to the real internal structure of object (could be there is field color, passwords inside size, but it never mentioned in search)
+
+//***************** __ BEST PRACTICES __ ********************
+1) Search once all the fields in request covered by single index.
+    Example:
+        you have an index 
+            { "name": 1, "age": 1 }
+        your request is 
+            db.users.find(
+                { "name": "Jhon" },                 //All the fields of query are in the index
+                { "name": 1, "age": 1, "_id": 0 }   //All the fields of projection are in the index
+            )
+        By explain() you'll get totalDocsExamined: 0, means we do not need to check docs in DB, we will work with index only
+
+2) Use keyset pagination (instead of skip)
+    Example:
+        do NOT use skip to find docs - it will read each N docs you want to skip
+            db.products.find().skip(10000).limit(10)
+        do the following:
+            db.products.find(
+                { "_id": { "$gt": ObjectId("65f1...") } }   //65f1 - last objectId from previous request
+            ).limit(10)
+
+3) ESR (Equality, Sort, Range) - it's more about index creation than about reading data
+    Example:
+        If you have a lot requests for active users with age > 20 sorted in DESC by name, means
+            db.users.find({ "status": "active", "age": { "$gt": 20 } }).sort({ "name": 1 })
+        you have to create index in proper way:
+            { "status": 1, "name": 1, "age": 1 }
+        It's according to the ESR rule:
+            1) status - strong equality (only active)
+            2) name - sorted in DESC
+            3) age - ranged (>20)
+        The order of (2) and (3) is VERY important cause here we already have sorted data due to indexing
+
+
+//***************** __ BAD PRACTICES __ ********************
+1) Read collection without indexes = COLLSCAN
+2) skip(X) where X is a huge number = COLLSCAN all of X docs
+3) Regexp with wild cart on string start = indexes not working
+4) Using negative filter ($ne, $nin) = indexes not working or working not effictive
+
+
+//***************** __ find().count() __ ********************
+Deprecated, fast as yakes data from meta info of collection (and do not count the docs in collection).
+Do not count orphans docs, can mistake on sharded cluster.
+
+
+//***************** __ estimatedDocumentCount __ ********************
+The fastest and the chipier way to know aporximate docs number in collection. The number is taken from collection metada.
+Used for some analitics reports on UI (for example: "Docs in DB: 0.8M"). 
+Could be problematic in sharding after migration due to Orphan docs.
+Works as O(1). Do not have filters.
+
+Example:
+    db.users.estimatedDocumentCount()
+
+
+//***************** __ countDocuments __ ********************
+Works as O(N), can have filters. Optimization: have an index over the field which used in filter.
+limit(N) - in case you want to grant existance in your db of N or more docs
+skip(M) - in case you want to know the "tail" size (first M are free, all others - with payment) 
+
+Example:
+    db.orders.countDocuments(
+        {
+            status: "completed",
+            amount: { $gte: 100, $lte: 500 },
+            customerRegion: { $in: ["EU", "US"] },
+            tags: { $exists: true },
+            items: { $size: 3 }
+        },
+        {
+            limit: 1000,            // count no more than 1000 docs
+            skip: 5,                // skip first 5 docs
+            hint: "status_1",       // Use index 
+            maxTimeMS: 5000         // Execution time 5 sec
+        }
+    )
+
+//***************** __ distinct __ ********************
+
+Example:
+    db.collection.distinct(
+        "field_name",                       // field from wich we want ot extract distinct values
+        { status: "active" },               // Filtering
+        { collation: { locale: "en" } }     // Options
+    )
+
+Returned:
+    BSON doc as array of found values. Size limitations = 16Mb
