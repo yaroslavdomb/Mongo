@@ -1,0 +1,65 @@
+Short examples:
+gt      |   { age: { $gt: 18 } }
+gte     |   { age: { $gte: 18 } }
+lt      |   { price: { $lt: 1000 } }
+lte     |   { price: { $lte: 1000 } }
+ne      |   { status: { $ne: "deleted" } }
+in      |   { tag: { $in: ["tech", "science"] } }
+nin     |   { code: { $nin: [404, 500] } } 
+and     |   { $and: [ { price: { $gt: 500 } }, { status: "active" } ] }
+or      |   { $or: [ { qty: { $lt: 10 } }, { status: "urgent" } ] }
+not     |   { price: { $not: { $gt: 50 } } }
+nor     |   { $nor: [ { category: "food" }, { stock: 0 } ] }
+exists  |   { phone: { $exists: true } }                    // check if the field exists
+type    |   { zipCode: { $type: "string" } }                // check type of field
+regex   |   { $regex: /^An/i }                              // word start from An, case insensitive option is on
+mod     |   { $mod: [5, 0] }                                // reminder after /5 equal to 0
+text    |   { $text: { $search: "mongodb tutorial" }}       // search words "mongodb" and "tutorial"
+where   |   { $where: "this.credits > this.debit" }         // most powerfull but very slow tool, never use indexes
+
+// ********************* __ ATTENTION __ ******************
+
+1) In most cases you do not need "and", cause 
+        { $and: [ { price: { $gt: 500 } }, { status: "active" } ] }
+    and
+        {price: { $gt: 500 }, status: "active" }
+    is the same
+
+2) All negative operators (nor/not/ne) can return docs even they has no searched field at all.
+    To prevent such behavior use negative operators + "exists"
+
+3) If you are using check for the same field it's better to use "in" instead of "or":
+        { $or: [ { status: "A" }, { status: "B" } ] }   // 2 searches for each condition and then merge with _id deduplication
+    vs
+        { status: { $in: ["A", "B"] } }                 // much faster
+
+4) For best scan all conditions inside OR/AND should have indexes, otherwise it will be COLLSCAN
+
+5) For best scan with OR/AND set the most reliable condition first
+
+6) All negative operators (nor/not/ne) not used indexes or use them not effective way, so works VERY slow
+
+7) Hidden "and" could lead to the issue (as core can override the first condition with second), so:
+        db.users.find({ age: { $gt: 10 }, age: { $lt: 20 } })       //incorrect
+    better to be used as
+        db.users.find({$and:[{age: {$gt: 10}}, {age: {$lt:20}}]})   //correct
+    or
+        db.users.find({age: {$gt: 10, $lt: 20}})                    //correct and short
+
+8) Best performance of regexp if it has "^" prefix
+
+9) You can create function in where clause:
+    db.articles.find({
+        $where: function() {
+            return this.comments.length > 2;
+        }
+    })
+
+10) "Or" works as 2 different searches (with indexes if it possible): 
+        - search 1 --> res1
+        - search 2 --> res2
+        - merge (r1 ; r2) --> return result
+    So better to use $in operator - it needs only one pas over all the data.
+    
+    $or is good for different fields
+    $in is good for the same field but different values

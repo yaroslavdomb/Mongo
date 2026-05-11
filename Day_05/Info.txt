@@ -1,0 +1,149 @@
+//***************** __ updateOne / updateMany __ ********************
+Used for:
+    updateOne = Update first document (even found some). First means the first by index. Atomic operation.
+                If changed field exists - it will be updated with new value. If not - it will be created.
+    updateMany = Update all docs that are align by filtering criterias.
+
+Schema:
+    db.collection.updateOne(filter, update, options)
+
+
+Example-1 (updateMany):
+    db.users.updateMany(
+        { status: "inactive" }, 
+        { $set: { archived: true } })
+
+    Returned:
+    {
+        "acknowledged": true, 
+        "matchedCount": 5,      // number of found by filter criteria
+        "modifiedCount": 3,     // number of modified
+        "upsertedId": null,     
+        "upsertedCount": 1    
+    }
+
+Example-2:
+    db.players.updateOne(
+        { "nickname": "DragonSlayer77" },                   // Filter of records to be updated
+        {                                                   // What and how to change inside the founded doc
+            $set: {                                             // set new values according to the fields. If not found - field will be created
+                "status": "VIP", 
+                "lastActivity.type": "purchase" 
+            },
+            $unset: { "reminders.promotionNotified": "" },      // remove field "promotionNotified" from object "reminders". For array elments it will set value "null".
+            $inc: {
+                "wallet.gold": 500,                             // Add to "gold" inside "wallet" 500 points (wallet.gold += 500)
+                "stats.totalPurchases": 1                       // Add to "totalPurchases" inside "stats" 1 point (stats.totalPurchases += 1)
+                "slotRemaining": -1                             // slotRemaining -= 1 
+            },
+            $mul: { "multipliers.exp": 1.2 },                   // "exp" inside "multipliers" *= 1.2
+            $max: { "stats.highScore": 1500 },                  // Update highestScore value to 1500 only if current value is less than 1500, otherwise stay as is
+            $min: { lowestScore: 100 },                         // Update lowestScore value to 100 only if current value is more than 100, otherwise stay as is
+            $addToSet: { "achievements": "First Purchase" },    // Add element to the array of "achievements" only if it yet not there
+            $pull: { "activeEffects": { "expired": true } },    // Delete all elements from array "activeEffects" that aligned by criteria
+            $pop: { "avatars" : 1 }                             // Delete one element - first for (-1) or last for (1) - from array "avatars"
+            $push: { "moto": "We are the champs!!!!"}           // Add element to the end of array "moto". If no such array - it will be created.
+            $currentDate: { "lastActivity.date": true },        // Set current date into the field (obj "lastActivity", field "date"). Value should always be "true"
+            $setOnInsert: { "createdAt": new Date() }           // Set field data ONLY if the doc was created from scratch (means, with upsert)
+            $rename: {"oldValue": "newValue"}                   // Rename field from "oldValue" to "newValue". Used set/unset as atomic operation inside Update           
+        },
+        {                                                   // Options
+            upsert: true                                        // flag to create doc if not found
+            writeConcern: { w: "majority", j: true },
+            collation: { locale: "en", strength: 2 },           // Language conditions
+            hint: { "email": 1 }                                // Force to use index by email
+        } 
+    )
+
+    Hook (trick):
+        You can use as secoond arg an array: db.collection.updateOne(filter, [change1, change2,...], options). Difference between this and regular schema is that here Mongo will do changes step-by-step, once in regular it will do in parallel. Due to this parallelism you can't do more than 1 operation over single field in single update, but with array you can. Inside the array you'll need to use aggregation commands only.
+
+    Returned:
+        {
+            "acknowledged": true,
+            "matchedCount": 0,                                      // doc not found
+            "modifiedCount": 0,                                     // num of modified docs
+            "upsertedId": ObjectId("65f1a2b3c4d5e6f7a8b9c0d1"),     // _id of new created doc
+            "upsertedCount": 1                                      //num of created docs
+        }
+
+$ operator
+    Used:
+        update data in first element of array matches to search condition
+
+    How it works for single change:
+        in search section Mongo look for an element with specific criteria and remeber the index of found element. In update section Mongo substitude operator $ by remembered index
+
+    Example - single change:
+        db.collection.updateOne(
+            { "tags": "old_value" },                     // search criteria
+            { "$set": { "tags.$": "new_value" } }        // update using $ operator
+        )
+
+    Example - multiply change:
+        db.students.updateOne(
+            { _id: 1 },                                     // select doc to update
+            { $set: { "grades.$[element]": 50 } },          // set new value(50) for all selected elements inside array ("grades")
+            { arrayFilters: [ { "element": 45 } ] }         // which elements will be selected for update (that has value=45)
+        )
+
+    Example - multiply change:
+        db.students.updateOne(
+            { _id: 1 },                                     // select doc to update
+            { $inc: { "grades.$[]": 10 } }                  // for any element of array "grades" add 10 points
+        )
+
+
+ATTENTION
+    1) You can't do 2 or more operations on the same field in same request (for example, set & inc) = error "Conflicting update operators"
+    2) You can't do operation on parent object and any operation on it's children
+    3) Use pull instead of unset while working with arrays
+    4) Mongo can modify the doc in other order than the fields appear in the request, but operation still remains atomic = all will be updated OR nothing will be updated 
+    5) Inside $set you can't use the other fields of the document, it's expect the defined values
+
+//***************** __ replaceOne __ ********************
+Used for:
+    Totally replace old document with a new one. _id of the doc stay the same!!! 
+
+Schema:
+    db.collection.replaceOne(
+        { "key": "value" },             // filter to search doc
+        { "newKey": "val" },            // replacement object (new document that will replace an old one)
+        {                               // options
+            upsert: <boolean>,
+            writeConcern: <document>,
+            collation: <document>,
+            hint: <document|string>
+        }
+    )
+
+Example-1:
+    db.backups.replaceOne(
+        { "targetId": 50 },                                             // filter
+        { "targetId": 50, "data": "new_blob", "updatedAt": "2026" }     // full new object
+    )
+
+Returned:
+    {
+        "acknowledged": true,
+        "matchedCount": 1,
+        "modifiedCount": 1,
+        "upsertedId": null,
+        "upsertedCount": 0
+    }
+
+//***************** __ deleteOne / deleteMany __ ********************
+Used for:
+    Delete all docs aligned with search filter
+
+Example-1:
+    db.alerts.deleteMany(
+        { "level": "info", "isRead": true },    //Filter
+        { writeConcern: { w: 1 } }              //Options
+    )
+
+Returned:
+    {
+        "acknowledged": true,
+        "deletedCount": 142         //number of deleted docs
+    }
