@@ -1,0 +1,8 @@
+//***************** __ REGISTRATION __ ****************
+1) Go to mongodb.com/atlas
+ 
+    Cluster: Choose M0 (Free Tier)
+    Provider: Choose one of AWS, Google Cloud or Azure
+    Security: Create customer
+    Network Access: Click on "Add IP Address". Select/create option "Allow Access from Anywhere" (0.0.0.0/0).
+

@@ -1,0 +1,100 @@
+// ********************** __ OPERATORS __ ************************
+1) push 
+    Add elements to the array.
+    If position > current array length and it's positive, elements will be added to the end (no sparse array).
+    If position > current array length and it's negative, elements will be added to the start of array.
+    Examples:
+        Adding one element to the end of array:
+            db.users.updateOne({ _id: 1 }, { $push: { scores: 85 } })
+        
+        Adding 3 elements to the end of array "tags":
+            db.users.updateOne({_id:2}, { $push: { tags: { $each: ["red", "blue", "green"] } } })
+
+        Adding 1 element("News1") into specified position (0 = at the beginning) of the array "news":
+            db.users.updateOne({_id:2}, {$push: { news: { $each: ["News1"], $position: 0 }}})
+
+        Adding 4 elements BEFORE pre-last position  (2 positions from the end) of "coordinates" array
+            db.users.updateOne({ _id: 2 }, { $push: { coordinates: { $each: [10, -2, 3.5, +0.4], $position: -2 }}})
+
+2) addToSet
+    Add elements only if yet not exists. Elements could be added only at the end of array.
+    Example:
+        Add one value:
+            db.users.updateOne({ _id: 1 }, { $addToSet: { tags: "admin" } })
+        
+        Add number of values:
+            db.users.updateOne({ _id: 1 }, { $addToSet: { tags: {$each: ["admin", "userVIP"]}}})
+
+3) pull
+    Remove elements aligned with filter condition 
+    Example:
+        db.users.updateOne({ _id: 1 }, { $pull: { scores: { $lt: 50 } } })
+
+4) pop
+    Remove last(1) or first(-1) element from array.
+    Example:
+        db.users.updateOne({ _id: 1 }, { $pop: { tasks: 1 } })
+        db.users.updateOne({ _id: 1 }, { $pop: { points: -1 } })
+
+5) elemMatch
+    Works with elements of Arrays only!!!
+    Search single doc that is align with search conditions.
+    Need to be used when we search for AND condition for different fields on the SAME object.  
+    Example:
+        db.students.find({ results: { $elemMatch: { subject: "subject", score: { $gt: 80 } } } })       // correct
+        // We are looking for such element in "results" where 
+            1) results.subject = subject AND 
+            2) results.score > 80
+        db.students.find({ results: { $and: [{ subject: "subject" }, {score: { $gt: 80 }}] } })         // incorrect
+        db.students.find({ $and: [{ results.subject: "subject" }, {results.score: { $gt: 80 }}] } )     // incorrect
+    
+    In elemMatch there is no field order dependency - you can put them in any order you want.
+    Better to use elemMatch in search with even single criteria. 
+
+    Once been used in filter section = search all docs in which you have an array with at least one element hold all conditions
+    Once been used in projection section = search from array the fiyrst element that hold the condition
+
+6) all
+    Search for docs where array has all elements
+    Example:
+        db.users.find({ skills: { $all: ["python", "mongodb"] } })    // search for user that has in "skills" array all elements from [] 
+
+7) size
+    Only exact number, do NOT work with gt/lt
+    Example:
+        db.users.find({ tags: { $size: 2 } })                                           // search userxs that has exactly 2 tags
+
+8) pullAll
+    Instead of pull that works with condition, pullAll takes list of exact values
+    Example:
+        db.posts.updateOne({ _id: 1 },{ $pullAll: { tags: ["draft", "archive"] } })     // remove docs with tags "draft" OR "archive"
+
+9) slice
+    Get part of array.
+    If it used in projection section it will limit the number of array elements that will be returned to client (save traffic + memory)
+    If apply to non-array field will return error/null.
+    Examples:
+        Positive: Get first 5 elementsfrom "scores"
+            db.users.find({}, { scores: { $slice: 5 } })
+
+        Negative: Get last 8 elements from "scores"
+            db.users.find({}, { scores: { $slice: -8 } })
+
+        Range: Get 4 elements starting from position 12 from "scores"
+            db.users.find({}, { scores: { $slice: [12,4] }})
+
+        Push first 3 results after merging with existed values and sorting in DESC (there will be 3 value in DB after this) 
+            db.users.updateOne({ _id: 1 }, { $push: { scores: { $each: [80,16,-5,95], $sort: -1, $slice: 3 }}})
+
+10) sort
+    Sort elements. -1 = DESC, 1 = ASC
+    Examples:
+        First sort by score, then by name
+            db.users.find().sort({ score: -1, name: 1 })
+        
+        Merge new element into array of existed values("scores") and then sort the array (simple object) 
+            db.users.updateOne({ _id: 1 }, { $push: { scores: { $each: [90], $sort: -1 } } })
+
+        Merge new element into array of existed values("exams") and then sort the array by specific field (complex object) 
+        For complex object you need to mention by which field the sorting should be done
+            db.users.updateOne({ _id: 1 }, { $push: { exams: { $each: [{ id: 2, score: 50 }], $sort: { score: -1 }}}})
