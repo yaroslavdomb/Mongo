@@ -1,0 +1,164 @@
+//****************************** __ Simple index __ **************************
+Used for: 
+    This is index based on single field.
+
+Examples:
+    db.posts.createIndex({ content: "text" })           // creaate index type "text" for "content" field 
+    db.places.createIndex({ location: "2dsphere" })     // maps and coordinates
+    db.users.createIndex({ _id: "hashed" })             // sharding and good sparcing between servers
+    db.users.createIndex(
+        { "email": 1 },                                 // what to sort and in which order
+        { name: "MyEmailIndex" }                        // index name 
+    )
+
+    Type of index
+        1       = ASC order
+        -1      = DESC order
+
+Use index:
+    by name:        .hint("MyEmailIndex")
+    by structure:   .hint({ email: 1 })
+
+    Example:
+        db.users.find({ email: "test@test.com" }).hint("MyEmailIndex")
+
+Delete index:
+    db.users.getIndexes()                   // best to check before deletion
+    db.users.dropIndex("MyEmailIndex")      // delete by name
+    db.users.dropIndex({ "email": 1 })      // delete by structure
+    db.users.dropIndexes()                  // delete all indexes
+
+//****************************** __ TEXT index __ **************************
+db.articles.createIndex(
+    {                                                   // list of the fields to be included into search
+        title: "text", 
+        content: "text", 
+        keywords: "text" 
+    },
+    {                                                   // Options for index creation
+        weights: {                                      // Weights for searched word according to its detection place
+            title: 10, 
+            content: 2, 
+            keywords: 5 
+        },
+        name: "SearchIndexV1",                          // name of the index
+        default_language: "english",                    // global language for stamming rules for that index
+        language_override: "doc_language",              // field inside the doc that define specific language
+        background: true,                               // execute indexing without collection blocking (old Mongo only)
+        partialFilterExpression: { isPublic: true },    // conditional indexing - only the docs with field "isPublic" and value "true" will be indexed
+        collation: {                                    // rule for comparing words 
+            locale: "simple",
+            strength: 2
+        }
+    }
+)
+
+db.articles.createIndex({ "$**": "text" })              // create text index by all String fields in this document
+
+
+//****************************** __ Complex/Compound index __ **************************
+Ued for:
+    This is index based on number of the fields. Order of the fields is important.
+    First collection will be sorted by first field, then by second and so on.
+    Such index is OK for searches that used all the fields mentioned in the index. 
+    But if the search used only part of fields mentioned in index - such index will be usless.
+    Index is OK for strait order and for full opposite order, but useless fir mix of fields sorting.
+
+    In case you have text search, the text fields should be the last in the list!!!
+
+Example for text and other fields: 
+    db.products.createIndex({ category: 1, description: "text" })                       // indexing
+    db.products.find({ category: "smartphones", $text: { $search: "OLED screen" } })    // goes to specific category and start search INSIDE THE CATEGORY only!!!
+
+Example for text and other fields: 
+    db.items.createIndex(                   // After index creation search will go accordinng to the order of fields: brand --> warehouse --> search inside
+        { 
+            brand: 1, 
+            warehouse: 1, 
+            name: "text", 
+            description: "text" 
+        },
+        { 
+            weights: { name: 10, description: 2 },
+            name: "GlobalProductIndex" 
+        }
+    )
+
+Example of full structure:
+    db.collection.createIndex(
+        { f1: 1, f2: -1 },              // sort by fields. This index is OK for search {f1:1, f2:-1} and {f1:-1, f2:1}, but not for {f1: 1, f2: 1}
+        { 
+            name: "custom_name",
+            unique: true,
+            sparse: true,
+            background: true,
+            expireAfterSeconds: 300,
+            partialFilterExpression: { rating: { $gt: 5 } },
+            collation: { locale: 'en', strength: 2 },
+            storageEngine: { wiredTiger: {configString: "block_compressor=none"} },
+            hidden: false,
+            weights: { title: 10, content: 1 },
+            default_language: "russian"
+        }
+    )
+
+    unique: true            = for complex index it means the combination of indexing fields values should be unique
+    sparse: true            = ignore the docs where the indexing field does not exist (if field has value "null" - doc will be indexed!!!)
+    background: true        = access to collection while indexing. Without it will block W and R(!!!) operations for the collection
+    expireAfterSeconds      = will be deleted after X seconds. Used in cache, sessions and logs.
+    partialFilterExpression = create index under condition (only objects that has rating > 5)
+    collation               = rule set for text search
+    storageEngine           = used for tinny configuration (ususally - for data compression)
+    hidden                  = for testing purposes (hide whitout deletion, test request: if OK - delete the index, if no - continue to use the index)
+    weights                 = for text indexes only. Give weights to the word in title and in article body.
+    default_language        = for text indexes only. Activate grammar rules for specific language for proper text processing
+
+
+//****************************** __ Intersection index __ **************************
+Used for:
+    Search when you have 2 simple indexes, but you want to search using both fields.
+
+Example: 
+    Index1 = colors
+    Index2 = size
+
+    Request: db.products.find({ color: "red", size: "XL" })
+    Execution: 
+        search by Index1 --> res1
+        search by Index2 --> res2 
+        intersect res1 and res2
+
+//****************************** __ Index Prefixes __ **************************
+Used for:
+    Complex index whaen we are searching not by all(N) indexed fields, but by only K first fields (K <= N)
+
+Examples:
+    Index creation: 
+        db.orders.createIndex({ "shop_id": 1, "status": 1, "date": 1 })
+
+    Search request: 
+        db.orders.find({ shop_id: 500, status: "completed" })       // index used for fields shop_id && status
+        db.orders.find({ shop_id: 500 })                            // index used for field shop_id
+        db.orders.find({ shop_id: 500, date: "2026-04-16" })        // index used for field shop_id, second indexed field - status - not present 
+        db.orders.find({ status: "completed", date: "2026-04-16" }) // no indexes used (first indexed field - shop_id - missed)
+
+//****************************** __ Covered Queries __ **************************
+Type of requests when:
+    - all the fields in filter are in index
+    - all the fields in projection are in the same index
+
+It's most effective situation as Mongo do not scan even 1 doc - all will be taken from index.
+Important: need to explicitly exclude _id field as if _id not covered in index then Mongo will read docs from disc!
+
+//****************************** __ Multikey Index __ **************************
+Example:
+    doc:
+        { name: "Alice", tags: ["mongodb", "java", "backend"] }
+    index:
+        { tags: 1 }
+    There will be 3 records for such record in index - per each element of array, so request find({ tags: "java" }) wil use the index to find the related doc.
+
+
+//****************************** __ Limitation __ **************************
+1) You can't create index with 2 or more array-fields (in SQL it's looks like 4NF) - too fast growing speed of table records once adding couple of addition values.
+2) You can create only one text index per collection. If you need search by number of fields all of them should be included into this index.
