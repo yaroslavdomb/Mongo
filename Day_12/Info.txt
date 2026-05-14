@@ -1,0 +1,157 @@
+//****************************** __ Create Validator  __ **************************
+1) while collection created:
+    db.createCollection("users", {
+        validator: { $jsonSchema: { ... } }
+    })
+
+2) Add validator to existing collection
+    db.runCommand({
+        collMod: "users",
+        validator: { $jsonSchema: { ... } },
+        validationLevel: "strict",
+        validationAction: "error"
+    })
+
+
+//****************************** __ Validator structure __ **************************
+{
+    $jsonSchema: {
+        bsonType: "object",
+        title: "User schema",
+        description: "Validation rules for users collection",
+        required: ["name", "email", "age", "address"],                                  // List of mandatory fields per doc, even with null value
+        properties: {
+            phone {                                                                     // Phone = is optional field, but still has validation schema, 
+                bsonType: "string",                                                     // can't be null
+                minLength: 2,
+                maxLength: 100
+            },
+            status: {                                                                   // status = is also optional
+                bsonType: ["string", "null"],                                           // String OR null
+                enum: ["active", "inactive", "pending", null]
+            }
+            name: {
+                bsonType: "string",
+                description: "must be a string and is required",
+                minLength: 2,
+                maxLength: 100
+            },
+            email: {
+                bsonType: "string",
+                pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",           // Regex filter
+                description: "must be valid email"
+            },
+            age: {
+                bsonType: "number",                                                     // "number" can be any of (autodetected types) double, int, long, decimal
+                minimum: 0,
+                maximum: 150,
+                description: "must be integer between 0 and 150"
+            },
+            address:{
+                bsonType: "object",
+                required: ["city", "zip"],                                              // internal mandatory fields
+                properties: {
+                    city: { bsonType: "string" },
+                    country: { bsonType: "string" },
+                    zip: { bsonType: "string" }
+                }
+            }
+        }
+    }
+}
+
+1) Do not use "number" - if needed to set couple of types use list of values, like: bsonType: ["int", "double"]
+2) Convert array into Set: use in validator schema arg "uniqueItems: true" for array field. 
+
+
+//****************************** __ Validation levels __ **************************
+Define to which docs validation will be applyed:
+    - strict    = any insert/update operations, existed docs on update that not alligned with validation schema will throw an error
+    - moderate  = any insert/update operations, existed docs on update that not alligned with validation schema will be updated successfully
+    - off       = no validation
+
+Example:
+    db.runCommand({
+        collMod: "users",
+        validationLevel: "strict"
+    })
+
+//****************************** __ Validation Action __ **************************
+What to do once detected doc that not aligned with validation schema.
+    - error     = throw an error
+    - warn      = operation will be executed but you'll get a record in logs in mongod.log
+
+Error structure:
+{
+    "writeErrors": [{
+        "index": 0,
+        "code": 121,                                // Document Validation Failure
+        "errmsg": "Document failed validation",
+        "errInfo": {
+            "failingDocumentId": ObjectId("..."),
+            "details": {
+                "operatorName": "$jsonSchema",
+                "schemaRulesNotSatisfied": [...]
+            }
+        }
+    }]
+}
+
+Set command:
+    db.runCommand({
+        collMod: "users",
+        validationAction: "warn"
+    })
+
+//****************************** __ Complex Validation __ **************************
+Example-1:
+    {
+        $jsonSchema: {
+            if: {
+                properties: { type: { const: "company" } },
+                required: ["type"]
+            },
+            then: {
+                required: ["companyName", "taxId"]
+            },
+            else: {
+                required: ["firstName", "lastName"]
+            }
+        }
+    }
+
+Example-2:
+{
+    $jsonSchema: {
+        anyOf: [                        //one of below is required
+            { required: ["email"] },
+            { required: ["phone"] }
+        ]
+    }
+}
+
+Example-3:
+{
+    $jsonSchema: {
+        bsonType: "object",
+        additionalProperties: false,            // only presented below fields are allowed
+        properties: {
+            _id:{bsonType: "object"},
+            name: { bsonType: "string" },
+            email: { bsonType: "string" }
+        }
+    }
+}
+
+//****************************** __ Check existing Validation __ **************************
+Request:
+    db.runCommand({ listCollections: 1, filter: { name: "users" } })
+
+Response:
+    {
+        "options": {
+            "validator": { "$jsonSchema": { ... } },
+            "validationLevel": "strict",
+            "validationAction": "error"
+        }
+    }

@@ -1,0 +1,71 @@
+Once generated request server does not return the full doc response but create CURSOR.
+0) Create request and send to server
+1) Client get reference on it + 1st batch of docs (101 docs or up to 16Mb - depend what will be reached first).
+2) Client finished with his first response --> send commend "getMore(cursor, collection)" and get second part of response (limit - 16Mb data)
+...
+3) Close cursor if one of the following occurs:
+    - there is no more data and server return cursorId = 0
+    - with timeout (10 min idle / session idle 30min)
+    - with cursor.Close()/cursor.isClosed()
+
+You can get cursor in Mongo with:
+    - find
+    - db.orders.aggregate                   = 
+    - db.getCollectionNames()               = list of 
+    - db.collection.getIndexes()            = list of all indexes on collection
+    - db.adminCommand({ listDatabases: 1 }) = list of all DB
+    - db.collection.getPlanCache().list()   = list of plans saved in memory for optimization
+
+
+//************************** __ Tailable Cursor __ *********************
+    Keep alive and do not closed after documents finished, it stops and wait for new docs.
+    Do not use indexes. First full scan is very expensive but all others - chep enough.
+    If there is no docs in collection on first scan the t-cursor dead, even then the docs could come.
+    It could become non-valid if the data comes faster than you read it.
+
+
+//************************** __ Cursor Methods __ *********************
+    hasNext()           = return true if cursor has docs. In case the local batch is empty, it execute getMore() and then return the response.
+    next()              = return current doc and move cursor futher
+    forEach(fn)         = go over all remaining docs in cursor and apply the fn function for each one of them
+    map(fn)             = go over all remaining docs in cursor, apply the fn function for each one of them AND RETURN ARRAY OF RESULTS. Works with all docs, like toArray().
+    for ... of          = modern version instead of forEach(fn) / while
+    toArray()           = return array of docs. Problem: it load all the docs after search simultaneously into the memory. Cursor closed automatically.
+    limit(X)            = server will return no more than X docs
+    skip(X)             = server will skip X docs 
+    noCursorTimeout()   = ignore cursor 10 min timeout. Once used you have to close it manually with "close()"
+    batchSize(n)        = set number of docs per batch
+    maxTimeMS(X)        = set limit for operation execution in miliseconds on server side. Not include connection and so on. 
+    objsLeftInBatch()   = show number of docs in local batch
+    allowDiskUse()      = allow disk usage if sorting is too heavy (100Mb RAM)
+    readConcern(lvl)    = set level of confirmed data you'll get (confirmed levels = local/majority/linearizable/snapshot)
+    hint(index)         = forced to use index 
+
+
+Examples:
+
+"Next" and "hasNext":
+    const cur = db.users.find({ age: { $gt: 18 } })
+    while (cur.hasNext()) {
+        const doc = cur.next()
+        print(doc.name)
+    }
+
+"ForEach" / "for ... of":
+    db.orders.find({ status: "pending" }).forEach(doc => {
+        print(doc._id, doc.total)
+    })
+
+    for (const doc of db.orders.find({ status: "pending" })) {
+       print(doc.name)
+    }
+
+Array:
+    const docs = db.products.find({ inStock: true }).toArray()
+    print(docs[0].name)
+    print(docs.length)
+
+No "skip":
+    const page1 = db.articles.find().sort({ _id: 1 }).limit(20).toArray()
+    const lastId = page1[page1.length - 1]._id
+    db.articles.find({ _id: { $gt: lastId } }).sort({ _id: 1 }).limit(20)
