@@ -1,0 +1,133 @@
+//*************************** __ DB Drivers  __ **********************
+Each driver consists from couple of the sub-systems:
+    URI Parser      = parsing of connection string and create configuration
+    SDAM            = background monitor of servers status
+    Conncetion Pool = managing connections
+    Session Manager = logical sessions for causally consistent reads
+    Retry Engine    = automatic retry once error occurs
+
+
+//*************************** __ Connection String  __ **********************
+
+Connection types:
+        1) mongodb://[user:password@]host1[:port],host2[:port][/database][?options]
+    OR
+        2) mongodb+srv://[user:password@]hostname[/database][?options]
+
+    1) Used for single server OR when you can list all the servers manually (host1, host2,...)
+    2) Used for cloud OR you have list all Mongo servers (so driver will connect through DNS and get the list of servers). Also set TLS=true.
+
+Example:
+    You are using
+        mongodb+srv://cluster0.example.com/
+    DNS has:
+        _mongodb._tcp.cluster0.example.com=0 5 27017 host1.example.com, 0 5 27017 host2.example.com
+    Means:
+        _mongodb._tcp. = prefix
+        0 = priority (the less number - the higher priority). Server with Priority=0 can't be master ever.
+        5 = weight (how to split the loading between servers with the same priority)
+        27017 = connection port
+        host2.example.com = URL of specific host
+        Both priority and weight meaningful for the first connection only, after it connectivity prefear the replica set configuration over DNS configuration.
+
+If there are special symbols (@:/) in password it should be converted into URL Encode.
+
+Connection string options:
+    replicaSet (-)                      = set name of the replica
+    directConnection(true)              = to connect specifically to this replica and not try to search master
+    authSource (default authdb / admin)  = DB for checking credentials
+    authMechanism (auto)                = SCRAM-SHA-256 / GSSAPI / MONGODB-X509
+    tls / ssl (false)                   = if to code with TLS
+    readPreference (primary)            = from which replica we should try to read data
+    readConcern                         = read Concern
+    maxStalenessSeconds (-1)            = Max time in seconds of unsync between secondary replica and prime
+    retryWrites (true)                  = auto-retry for write
+    retryReades (true)                  = auto-retry for reads
+    w (1)                               = write concern
+    j (false)                           = wait for journal flash
+    connectTimeoutMS (30000)            = connection timeout in milisec
+    socketTimeoutMS (0)                 = timeout per operation (0 means neverended)
+    maxPoolSize (100)                   = max number of connections in pool
+    minPoolSize (0)                     = min number of connections in pool
+    maxIdleTimeMS (0)                   = TTL idle of connection (0 means neverended)
+    waitQueueTimeoutMS (0)              = wait for free connection (0 means neverended)
+    
+
+Example:
+    mongodb+srv://user:P%40ss@cluster0.example.com/mydb
+        ?replicaSet=atlas-xyz
+        &authSource=admin
+        &tls=true
+        &retryWrites=true
+        &retryReads=true
+        &readPreference=secondaryPreferred
+        &maxStalenessSeconds=120
+        &maxPoolSize=50
+        &minPoolSize=5
+        &waitQueueTimeoutMS=5000
+
+//*************************** __ replicaSet __ **********************
+Splitted into 3:
+    - Primary (The only can write, hold OPeration LOG)
+    - Secondary (Help to read, read OpLog and sync data with Primary)
+    - Arbiter (not save data, may be used for analytic purposes and elections)
+
+replicaSet need for driver to work with group of Monge servers, otherwise the driver connect in standalone mode for the first available server 
+and once it fail down, driver does not care lelections results - it will wait for the failed server to start up.
+
+
+//*************************** __ authSource __ **********************
+
+
+//*************************** __ Connection Pooling __ **********************
+Connection executed to topology.
+Connections count: Primary max connections + 2 monitors (10sec + stream) + num_replics * (max_connection + 2 monitors) 
+
+
+//*************************** __ Batching __ **********************
+insertMany = syntax sugar over bulkWrite (16Mb or 100'000 operations per batch). Ordered = true.
+In case manual settings optimal is 1K docs per batch. Node.js driver is also prefear 1k docs, all others (Go/Java/Python) - 101 doc.
+In case of error for ordered will be returned single error, fir unordered = an array.
+
+
+//*************************** __ readPreference __ **********************
+primary             = primary only (default)
+primaryPreferred    = try to connect primary, if failed - secondary
+secondary           = secondary only
+secondaryPreferred  = try to connect secondary, if failed - primary
+nearest             = server with minimal latency (ping)
+
+
+//*************************** __ retryReads __ **********************
+In case of error driver:
+    1) catch the error (and check if it's of retryable type)
+        - Elections
+        - server shutdown
+        - connection issues
+    2) ask for Mongo claster topology
+    3) retry request
+
+Driver do max 2 tries (first regular request and second - retry).
+
+
+//*************************** __ ssl/tls __ **********************
+ssl(old), today flag is tls.
+Very heavy operation.
+
+//*************************** __ TAGS __ **********************
+User can tag servers with tags and then configure to work with tagged servers only. 
+1) Set configuration:
+    conf = rs.conf()
+    conf.members[0].tags = { "dc": "LA", "disk": "ssd", "type": "production" };
+    conf.members[1].tags = { "dc": "NY", "disk": "hdd", "type": "production" };
+    conf.members[2].tags = { "dc": "NY", "disk": "ssd", "type": "analytics" };
+    rs.reconfig(conf)
+
+2) Work with replica via connection string:
+        mongodb://user:pass@host1,host2,host3/?replicaSet=myRS&readPreference=secondary&readPreferenceTags=dc:LA
+    OR with code:
+        const myCursor = db.collection.find({}).readPref('secondary', [
+            { "type": "analytics" },    // first preference = analytic type
+            { "dc": "NY" },             // second preference = located in NY
+            {}                          // any other
+        ]);
