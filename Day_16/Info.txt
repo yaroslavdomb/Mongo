@@ -1,0 +1,400 @@
+//************************* __ BASIC __ **********************
+
+There are 3 types of search
+1) $text + text index   = base search, no need Atlas/Lucene
+2) $search              = Atlas+Lucene search (fuzzy matching, autocomplete, facets, highlighting, synonyms, compound queries, Lucene analyzers)
+3) $vectorSearch        = 
+
+
+//************************* __ BASIC SEARCH __ **********************
+Used:
+    Some very simple search tasks. 
+    Use old grammar - { $text: { $search. In Mongo Atlas it will be vice versa due to aggregation, so it will be { $search: { "text"
+
+Limitations:
+    Don't know to work with misstypes ("fuzzy search")
+    On huge collections it will take a lot of RAM
+    Only one text index per collection
+    Use search by full word only (can't find "category" on search with "cat")
+    Ignore stop-words (and/the/in/on) that in some cases may be problematic.
+
+
+Order of actions:
+    1) create index
+        - with name & weights
+            db.articles.createIndex(
+                { title: "text", content: "text" },                             // fields "title" and "content" should be indexed as text fields 
+                { weights: { title: 10, content: 2 }, name: "MyTextIndex" }
+            )
+
+        - with all String fields in collection
+            db.articles.createIndex({ "$**": "text" })
+
+    2) search
+            db.articles.find(
+                {                                                           // search criteria
+                    $text: { 
+                        $search: "coffee -tea \"french press\"",            // search word "coffee", exclude "tea" and include exactly phrase "french press"
+                        $language: "spanish",                               // wich language rules will be used in that request
+                        $caseSensitive: false,                              // case sensitive or not, ignore rules of collation in index creation commmand
+                        $diacriticSensitive: false                          // diactric sensitive or not
+                    } 
+                },
+                {                                                           // projection - which fields we want to see ADDITIONALLY to the doc fields
+                    mysearchwordpoints: { $meta: "textScore" }              // dynamically created field with document score (by found words and location) 
+                }
+            )
+            .sort({ mysearchwordpoints: { $meta: "textScore" } })           // sort returned docs by score
+
+        Response:
+            {
+                "_id": 1,
+                "title": "Black Coffee Recipes",
+                "mysearchwordpoints": 12.5                                  // to exclude this field from returned doc just left the projection section in find() empty
+            },
+            {
+                "_id": 2,
+                "title": "How to make cake with a hint of coffee",
+                "mysearchwordpoints": 3.2
+            }
+
+//************************* __ ATLAS SEARCH __ **********************
+Basic:
+    - Allow very complex search of text fields
+    - Improve search by numbers (from... to), dates - Block KD-trees
+    - Improve search by geopositions fields - Quad-trees
+    - There is eventual consistency of data (and not strongly consistent like usually we have with B-tree in Mongod).
+    - Use inverted indexes (map of {keyword : list of docs where this keyword was found})
+    - Best practice = create separate nodes for search only (very good for CPU and RAM usage)
+    - To hold the Lucene up-to-date, any change of data (Mongod) immediatly goes also to Mongot, but the analysing takes time. So there is eventual consistency of data and not strongly consistent like usually we have with B-tree in Mongod.
+
+
+There are 2 processes in Atlas - regular Mongod and Mongot (based on Apache Lucene)
+1) Mongod get your request
+2) If there is a search in request - move request to Mongot
+3) Mongot execute search by his indexes (separated from Mongod)
+4) Mongot return the list of docs and their scores to Mongod
+5) Mongod takes docs from collections and return to you
+
+ALGORYTHM:
+    TF-IDF = old version, issues:
+        - has no weight limitation for number of occurence the keyword inside the doc (spam allowed)
+        - not counted "Field Length" (better matching for short messages)
+    BM25 = new version, Best Match, use the following statistic:
+        Term Frequency              = number of occurence the keyword inside the doc
+        Inverse Document Frequency  = number of occurence the keyword inside the collection
+        Field Length                = percent (weight) of keyword inside request relative to the whole field length where it was found
+        As result - each doc get scoring between 0 and 1
+
+INDEXING:
+    There are 2 options to index fields in Atlas:
+        - Dynamic mappings          = Atlas will do all by himself (all fields, all types). Could lead to unnormal huge index.
+        - Static/explicit mappings  = you describe what to index and how to analyze. Prod standard.
+    Example-1:
+        {
+            "mappings": {
+                "dynamic": false,
+                "fields": {
+                    "title": {
+                        "type": "string",
+                        "analyzer": "lucene.english",
+                        "multi": {
+                            "keywordAnalyzer": {            // keep the string as single token. Need for exactly searchincluding spaces and Capitals letters
+                                "type": "string",
+                                "analyzer": "lucene.keyword"
+                            },
+                            "completion": {                 // for edge-gramm search as word Israel will be saved as ["Isr","Isra","Israe","Israel"]
+                                "type": "autocomplete",     // allow to search docs by parts of the word
+                                "analyzer": "lucene.standard",
+                                "tokenization": "edgeGram", // Always start from the word beginning
+                                "minGrams": 3,              // Minimal number of letters to allow search
+                                "maxGrams": 15              // Maximal number of letters as single token
+                            },
+                            "simple": {                     // do not cut postfixes
+                                "type": "string",
+                                "analyzer": "lucene.standard"
+                            },
+                            "shingles": {                   // create tokens from nearest words = good for phrase search
+                                "type": "string",
+                                "analyzer": "lucene.spanish"
+                            }
+                        }
+                    },
+                    "price": {
+                        "type": "number"
+                    },
+                    "tags": {
+                        "type": "string"
+                    }
+                }
+            }
+        }
+
+    Example-2:
+        {
+            "mappings": {
+                "dynamic": false,
+                "fields": {
+                    "title": {
+                        "type": "string",
+                        "analyzer": "lucene.english"
+                    },
+                    "price": { "type": "number" },
+                    "category": { "type": "stringFacet" },
+                    "createdAt": { "type": "date" },
+                    "nameAutocomplete": {
+                        "type": "autocomplete",
+                        "tokenization": "nGram",            // search INSIDE the word, not from the start
+                        "minGrams": 2,
+                        "maxGrams": 15
+                    }
+                }
+            }
+        }
+    
+    Using:
+        {
+            $search: {
+                "autocomplete": {                       // search in gramms table and not between full words map  
+                    "query": "appl",
+                    "path": "title.completion"          // give path to this table - it should be field "title" and creaated by "completion"
+                }
+            }
+        }
+
+        {
+            $search: {
+                "index": "default",                     // use index named "default"
+                "text": { 
+                    "query": "apple",                   // search for "apple"
+                    "path": ["title", "description"],   // search inside field "title"
+                    "fuzzy": {                          // fuzzy search configuration
+                        maxEdits: 1,                    // one operation could be done to get needed word (could be 1 or 2 due to complexity)    
+                        prefixLength: 3                 // exactly match of the first X letters in the word
+                    }               
+                },
+                "sort": { "title.exact": 1 }            // Lucene need to sort by full row (simple "title" is splitted by tokens), so you need "title.exact"
+            }
+        }
+
+        { 
+            phrase: {                                   // search by phrase
+                query: "machine learning",              // searched phrase
+                path: ["content", "title"]              // fields where to search                        
+                slop: 2                                 // distance between searched words in query field or switching places of the words
+            } 
+        }
+
+        { range: { path: "publishedAt", gte: new Date("2025-01-01") } }             // search by range
+        { near: { path: "publishedDate", origin: new Date(), pivot: 7776000000 } }  // search by geoposition/timepoint
+        { wildcard: { query: "head*", path: "name", allowAnalyzedField: true } }    // search with wild card symbols (* = any,  ? = exactly 1 symbol)
+        
+        db.products.aggregate([{$search: {
+            "index": "default",
+            compound: {
+                must:   [{ text: { query: "laptop", path: "name" } }],
+                should: [{ text: { query: "gaming", path: "tags", score: { boost: { value: 2 } } } }],
+                filter: [{ range: { path: "price", lte: 1500 } }],
+                mustNot:[{ text: { query: "refurbished", path: "condition" } }]
+            }}
+        }])
+
+
+ANALYZER:
+    There are build-in analyzers or you can configure it by yourself.
+    Build-in:
+        - lucene.standard   = default
+        - lucene.<language> = using specific language rules
+        - lucene.keyword
+        - lucene.whitespace = splitting by whitespace
+    
+    Custom:
+        Consist of number of layers (always the same order of execution: 0-1-2)
+            0) Character Filters
+                - HTML Strip    = delete HTML tags
+                - Mapping       = subsitute the symbols
+            1) Tokenizer        = split to tokens
+            2) Token Filters
+                - Lowercase     = convert to lower case
+                - Stopwords     = drop out the/and/in/on/...
+                - Stemming      = search for word base
+                - Synonyms      = group synonyms
+        Example:
+            {
+                "name": "myProductAnalyzer",
+                "charFilters": [
+                    {  "type": "mapping", 
+                        "mappings": { 
+                            "&": " and ", 
+                            "+": " plus " 
+                        } 
+                    }
+                ],
+                "tokenizer": { "type": "standard" },
+                "tokenFilters": [
+                    { "type": "lowercase" },
+                    { "type": "snowballStemming", "stemmerName": "english" },
+                    { "type": "stopword", "tokens": ["the", "a", "an"] },
+                    { "type": "shingle", "minShingleSize": 2, "maxShingleSize": 3 }
+                ]
+            }
+
+
+FACETS & META
+    Facets      = data grouped by different category and count how many docs included into each group
+    $searchMeta = special stage of aggregation. Return only statistics and not documents.
+
+    Example:
+        [
+            {
+                $searchMeta: {
+                    index: "default",
+                    facet: {
+                        operator: {
+                            text: {                                 // search
+                                query: "smartphone",                // what we are looking for 
+                                path: "description"                 // in which field we are looking
+                            }
+                        },
+                        facets: {
+                            "brand_facet": {                        // facet name
+                                type: "string",                     // type of string we need statistica
+                                path: "brand"                       // field name we collect statistica
+                            },
+                            "price_range": {
+                                type: "number",
+                                path: "price",
+                                boundaries: [0, 500, 1000, 2000]    // groups <0, 0< and <500, 500< and <1000, 1000< and <2000, >2000 
+                            }
+                        }
+                    }
+                }
+            }
+        ]
+
+
+        const facets = await db.products.aggregate([{
+            $searchMeta: {
+                facet: {
+                    operator: { text: { query: "laptop", path: "name" } },
+                    facets: {
+                        categoryFacet: { type: "string", path: "category" },
+                        priceFacet:    { type: "number", path: "price",
+                                        boundaries: [0, 500, 1000, 2000], default: "other" },
+                        dateFacet:     { type: "date", path: "createdAt",
+                                        boundaries: [new Date("2024-01-01"), new Date("2025-01-01")] }
+                    }
+                }
+            }
+        }]).toArray()
+
+
+
+
+
+
+
+
+
+
+
+
+
+6. Highlighting
+jsdb.articles.aggregate([{
+  $search: {
+    text: { query: "mongodb performance", path: ["title", "body"] },
+    highlight: { path: ["title", "body"] }
+  }
+}, {
+  $project: {
+    title: 1,
+    highlights: { $meta: "searchHighlights" }
+  }
+}])
+Возвращает массив фрагментов с тегами <hit> вокруг найденных слов — готово для подсветки в UI.
+
+7. Scoring: кастомизация релевантности
+js{
+  $search: {
+    text: { query: "laptop", path: "name",
+      score: {
+        boost: { value: 3 }           // умножить score × 3
+        // или:
+        // constant: { value: 1 }     // фиксированный score
+        // function: { ... }          // произвольная функция
+      }
+    }
+  }
+}
+score.function — мощный инструмент. Позволяет строить score как формулу над полями документа: { add: [{ score: "relevance" }, { path: "popularity", undefined: 0 }] } — прибавить popularity к Lucene score.
+{ $meta: "searchScore" } в $project — получить сырой score.
+
+8. Atlas Vector Search — отдельный движок
+$vectorSearch — отдельный aggregation stage для семантического поиска. Поддерживает ANN (Approximate Nearest Neighbor) и ENN (Exact). Работает на Atlas 6.0+. Старый knnBeta оператор внутри $search — deprecated. OneUptime
+Поддерживает эмбеддинги от любого провайдера с лимитом до 4096 dimensions. Поддерживает ingestion и индексирование scalar и binary quantized векторов. Также есть опция автоматической scalar и binary квантизации full-fidelity векторов. Allegro
+jsdb.articles.aggregate([{
+  $vectorSearch: {
+    index: "vector_index",
+    path: "embedding",
+    queryVector: [0.1, 0.2, ...],  // 1536-dim для OpenAI ada-002
+    numCandidates: 150,             // overrequest ratio — берём больше, ранжируем
+    limit: 10,
+    filter: { category: "tech", year: { $gte: 2024 } }
+  }
+}, {
+  $project: { title: 1, score: { $meta: "vectorSearchScore" } }
+}])
+numCandidates должен быть в 10–20× больше limit для хорошего recall. Это называется overrequest pattern.
+HNSW (Hierarchical Navigable Small Worlds) — алгоритм приближённого поиска ближайших соседей. Строит иерархический граф, где каждый вектор соединён с несколькими ближайшими. Поиск ANN проходит по графу от верхнего слоя к нижнему — логарифмическая сложность вместо линейной.
+
+9. Hybrid Search — главная фича 2025
+MongoDB Atlas 8.1+ представил $rankFusion для native hybrid search. Объединяет результаты из $search (keyword/BM25) и $vectorSearch (semantic/HNSW) через Reciprocal Rank Fusion. Foojay
+В сентябре 2025 добавился $scoreFusion (public preview) — нормализует scores от 0 до 1 и объединяет через взвешенное среднее. Это даёт больше контроля над балансом keyword vs semantic. Foojay
+js// $rankFusion — проще настроить
+db.movies.aggregate([{
+  $rankFusion: {
+    input: {
+      pipelines: {
+        textSearch: [{ $search: {
+          text: { query: "space travel adventure", path: "plot" }
+        }}],
+        vectorSearch: [{ $vectorSearch: {
+          index: "plot_vector_index",
+          path: "plot_embedding",
+          queryVector: embedQuery("space travel adventure"),
+          numCandidates: 200,
+          limit: 20
+        }}]
+      }
+    },
+    combination: {
+      weights: { textSearch: 0.4, vectorSearch: 0.6 }
+    }
+  }
+}, { $limit: 10 }])
+Keyword search точен для точных совпадений (названия, артикулы, технические термины). Vector search понимает смысл и синонимы. Hybrid search объединяет оба подхода, давая результаты которые понимают и что написал пользователь, и что он имел в виду. По данным MongoDB, пользователи Eddy AI chatbot видят на 30% лучшую точность контекстного поиска с hybrid search. Practical-mongodb-aggregations
+
+10. Synonyms
+js// Сначала создать коллекцию synonyms:
+db.synonyms.insertMany([
+  { mappingType: "equivalent", synonyms: ["mongodb", "mongo", "mdb"] },
+  { mappingType: "explicit",   input: ["laptop"], synonyms: ["notebook", "macbook", "ultrabook"] }
+])
+
+// В индексе:
+{ "synonyms": [{ "name": "mySynonyms", "source": { "collection": "synonyms" } }] }
+
+// В запросе:
+{ text: { query: "mongo", path: "title", synonyms: "mySynonyms" } }
+equivalent — все слова взаимозаменяемы. explicit — поиск по input расширяется до synonyms, но не наоборот.
+
+11. $text vs Atlas Search — когда что использовать
+Используй $search (Atlas Search) для любых user-facing search features — значительно лучший UX за счёт fuzzy matching и релевантного ранжирования. $text подходит только для простых случаев без Atlas или когда eventual consistency неприемлема. MongoDB
+Когда нужен только точный поиск по нескольким полям без full-text возможностей — обычные B-tree индексы MongoDB работают лучше и дают strong consistency без lag синхронизации. DZone
+
+12. Self-hosted: Community и Enterprise (2026)
+MongoDB анонсировала public preview Atlas Search и Vector Search для Community Edition в 2025 году, с планами GA к концу 2025 — началу 2026. Enterprise Advanced получит preview примерно тогда же. MongoDB Это большая новость — раньше полноценный $search был доступен только в облачном Atlas.
+
+
+db.createSearchIndex() 

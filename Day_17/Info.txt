@@ -1,0 +1,275 @@
+//************************* __ BASIC __ ****************************
+Aggregation = searching docs in DB but return them with some kinds of transformation (otherwise no need aggregation, you just use simple find())
+
+There are couple groups of commands in aggregation:
+    1) Filtering & 
+    2) Grouping & accumulators
+    3) Outputing & special operations
+
+Aggregation is a piplene of the stages
+
+//************************* __ Filtering &  __ ****************************
+$MATCH:
+    works like find - return docs that are align with search conditions
+    Example:
+        { $match: { status: "done", city: "NY" } }          //remain docs with city NY and status=done only
+
+    Best practice:
+        $match should come in piplene ASAP.
+
+$PROJECT:
+    works like SELECT in SQL or projection section in find(). Also know to do some actions on the fly AND create the fields.
+    Example:
+        { $project: { customer: 1, city: 1, price: 1, _id: 0 } }        // simple selection to show some fields
+        { $project: {
+            customer: 1,
+            totalCost: { $multiply: ["$price", "$qty"] },  // calculate on the fly total price AND put in "totalCost"
+            cityUpper: { $toUpper: "$city" },              // set to UPPER CASE city name
+            hasDiscount: { $gte: ["$price", 10000] }       // 
+        }}
+
+$SET:
+    Short version of $PROJECT for adding new field only.
+    Example:
+        { $set: { totalCost: { $multiply: ["$price", "$qty"] } } }  // all existed fields will be displayed AND ADDITIONAL field - "totalCost" - also.
+
+$SORT $SKIP $LIMIT:
+    Each stage align with the same actions in Cursor. By ESR rule, sort should come before group actions.
+    Example:
+        { $sort: { price: -1 } }   // 
+        { $skip: 20 }              // skip first 20 docs
+        { $limit: 10 }             // take 10 or less (if there is less than 10 remains)
+
+    Example of pagination:
+        db.orders.aggregate([
+            { $match: { status: "done" } },
+            { $sort: { price: -1 } },
+            { $skip: (page - 1) * 10 },
+            { $limit: 10 }
+        ])
+
+//************************* __ Grouping & accumulators __ ****************************
+$GROUP:
+    It's like GROUP BY in SQL.
+    For sharded data each replica Mongo count the data locally and then send it to the main server, where data merged into single response.
+    For complex grouping ID it use hash to count the group. Key created based on all the fields mentioned in ID in order of appearence. 
+
+    Schema:
+        { $group: {
+            _id: "<field name by which we arte grouping>",
+            <new field name>: { <aggregation operator>: "<how exactly to group>" } 
+        }}
+
+    Example-1:
+        { $group: {
+            _id: "$city",              // group by "city" field
+            count:  { $sum: 1 },       // each document will give us +1 to "count"
+            total:  { $sum: "$price" } // each document will give us + his price for "total"
+        }}
+
+        Return (JSON doc):
+            [
+                { _id: "NY", count: 3, total: 28000 },
+                { _id: "LA", count: 1, total: 3000  }
+            ]
+
+    Example-2:
+        { $group: { 
+            _id: { 
+                city: "$city",                  // groupped by "city"
+                category: "$category" },        // groupped by "category"
+            total: { $sum: "$price" } 
+            } 
+        }
+
+        Return (JSON doc):
+            [
+                { "_id": { "city": "NY", "category": "Laptops" }, "total": 2000 },
+                { "_id": { "city": "LA", "category": "Laptops" }, "total": 2050 },
+                { "_id": { "city": "NY", "category": "Phones" }, "total": 500 }
+            ]
+
+    Example-3:
+        { $group: { 
+            _id: null,                  // COUNT(*) in SQL
+            grandTotal: { 
+                $sum: "$price" } 
+            } 
+        }
+
+$SUM:
+    Example:
+        { $group: {
+            _id: { city: "$city", category: "$category" },                  // group key
+            total_in_field: { $sum: { $multiply: ["$price", "$qty"] } }     // new field with result
+        }}
+
+$AVG:
+    Example:
+        { $group: {
+            _id: { city: "$city", category: "$category" },                      // create docs bucket by city and category  
+            average_price: { $avg: "$price" },                                  // count average of single product in the bucket
+            average_order_value: { $avg: { $multiply: ["$price", "$qty"] } }    // count avarage of order in the bucket
+        }}
+
+$MIN/$MAX
+    Return doc with minimal/maximal values in bucket
+
+$PUSH
+    Collect docs into array. Allow duplications.
+    
+    Example:
+        { $group: {
+            _id: "$city",
+            customers: { $push: "$customer" }               // collection of customers by city 
+        }}
+
+$addToSet:
+    Collect docs into array. NOT allow duplications
+
+    Example:
+        { $group: {
+            _id: "$city",
+            uniqueCustomers: { $addToSet: "$customer" }     // collection of unique customers by city 
+        }}
+
+$sortByCount:
+    Syntax sugar for very popular actions.
+
+    Example:
+            { $sortByCount: "$brand" }                      // split docs by values of "brand" field, count num of docs per group & sort them
+        is the same as 
+            [
+                { $group: { _id: "$brand", count: { $sum: 1 } } },
+                { $sort: { count: -1 } }
+            ]
+
+//************************* __ Outputing & special operations  __ ****************************
+$OUT:
+    Should be the last stage of pipeline. Totally replace collection with new collected data.
+    You can write only into the same DB where the data was collected. Due to total replacing all the indexes also will be deleted.
+    Not for using in transactions.
+
+    Example:
+        db.orders.aggregate([
+            { $match: { status: "done" } },
+            { $group: { _id: "$city", total: { $sum: "$price" } } },
+            { $out: "city_totals" }                                     // use collection "city_totals" as returned result instead of cursor
+        ])
+
+$MERGE:
+    Allow to write into any DB. Do not delete indexes. Allow update/throw error/skip docs in collection with the same _id.
+    $ = docs from existed collection
+    $$ = docs from new collection
+
+    Example:
+        { $merge: {
+            into: { db:"target_db", coll: "target_collection" }     // db - optional
+            on: "_id",                                              // fields that are keys in collection
+            whenMatched: "merge",                                   // what to do for the same keys: "replace", "keepExisting", "merge", "fail", "pipeline"
+            whenNotMatched: "insert"                                // what to do for the different keys: "insert", "discard", "fail"
+        }}
+    
+    Example-2:
+        db.orders.aggregate([
+            { $match: {                                             // search orders for specific date
+                status: "done", 
+                date: { $gte: ISODate("2026-04-20T00:00:00Z") } 
+            }},
+            { $group: {                                             // group by city
+                _id: "$city",                   
+                new_revenue: { $sum: "$price" },                    // count revenue
+                order_count: { $sum: 1 }                            // count number of orders
+            }},
+            { $merge: {
+                into: "city_sales_stats",                           // target collection
+                on: "_id",                                          // _id = city name (see "group" stage)
+                whenMatched: [                                      // if city already in collection
+                    { $set: { 
+                        total_revenue: { $add: ["$total_revenue", "$$new_revenue"] },   // total_revenue += new_revenue
+                        total_orders: { $add: ["$total_orders", "$$order_count"] },     // total_orders += order_count
+                        last_updated: "$$NOW"                                           // update time of calculation
+                    }}
+                ],
+                whenNotMatched: "insert"                              // if the city not in the collection
+            }}
+        ])
+
+$FACET:
+    Create number of piplines inside the same request
+
+    Example-1:
+        db.orders.aggregate([
+            { $match: { status: "done" } },                                     // filtering
+            { $facet: {
+                byCityTop5: [                                                   // name of first pipeline
+                    { $group: { _id: "$city", total: { $sum: "$price" } } },     
+                    { $sort: { total: -1 } },
+                    { $limit: 5 }
+                ],
+                byCategory: [                                                   // second pipeline name
+                    { $group: { _id: "$category", count: { $sum: 1 }, avg: { $avg: "$price" } } }
+                ],
+                grandTotal: [                                                   // third pipeline name
+                    { $group: { _id: null, total: { $sum: "$price" }, count: { $sum: 1 } } }
+                ]
+            }}
+        ])
+    
+    Example-2:
+        db.products.aggregate([
+            { $match: { stock: { $gt: 0 } } },              // filtering
+            {
+                $facet: {
+                    "categorized_data": [                   // pagination from highest price to lowest, return top-10 results
+                        { $sort: { price: -1 } },
+                        { $skip: 0 },
+                        { $limit: 10 }
+                    ],                
+                    "price_stats": [
+                        { $group: {
+                            _id: null,                      // check all records as one group
+                            avgPrice: { $avg: "$price" },   // find average
+                            minPrice: { $min: "$price" },   // find minimal price
+                            maxPrice: { $max: "$price" }    // find maximal price
+                        }}
+                    ],
+                    "brands_count": [                       // get top-5 brands
+                        { $sortByCount: "$brand" },         // group by "brand", count and sort the groups from largest to smallest according to the count
+                        { $limit: 5 }
+                    ]
+                }
+            }
+        ])
+
+//************************* __ FULL EXAMPLE  __ ****************************
+db.orders.aggregate([
+    { $match: {                                                     // filtering by status and date
+        status: "done",
+        createdAt: { $gte: new Date("2026-03-01") }
+    }},
+    { $set: {                                                       // new field
+        revenue: { $multiply: ["$price", "$qty"] } 
+    }},
+    { $group: {                                                     // groupping by city
+        _id: "$city",
+        totalRevenue: { $sum: "$revenue" },
+        orderCount:   { $sum: 1 }
+    }},
+    { $sort: { totalRevenue: -1 } },                                // sorting
+    { $limit: 3 },                                                  // takes top-3
+    { $project: {                                                   // which fields to show
+        _id: 0,
+        city: "$_id",
+        totalRevenue: 1,
+        orderCount: 1
+    }}
+])
+
+SQL:
+    SELECT city, SUM(price * qty) AS totalRevenue, COUNT(*) AS orderCount
+    FROM orders
+    WHERE status = 'done' AND createdAt >= '2026-03-01'
+    GROUP BY city
+    ORDER BY totalRevenue DESC
+    LIMIT 3
