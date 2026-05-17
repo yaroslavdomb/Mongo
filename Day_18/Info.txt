@@ -1,0 +1,577 @@
+Data to be used in examples:
+    { _id: 1, userId: 101, status: "completed", amount: 150, tags: ["electronics", "sale"], createdAt: ISODate("2024-01-15T10:30:00Z") }
+    { _id: 2, userId: 102, status: "pending",   amount: 75, tags: ["clothing"], createdAt: ISODate("2024-02-20T14:00:00Z") }
+    { _id: 3, userId: 101, status: "completed", amount: 200, tags: ["electronics", "new"],  createdAt: ISODate("2024-02-28T09:15:00Z") }
+    { _id: 4, userId: 103, status: "cancelled", amount: 50, tags: ["sale"], createdAt: ISODate("2024-03-05T18:45:00Z") }
+
+    { _id: 101, name: "Alice", city: "NY" }
+    { _id: 102, name: "Bob",   city: "Berlin" }
+    { _id: 103, name: "Carol", city: "NY" }
+
+//********************** __ $expr __ *****************************
+    Used for:
+        - Substitute "where"
+        - inside $lookup
+        - creation compound logical filters 
+
+    Limitations:
+        1) you have to use prefix form of operation: { $eq: ["$city", "NY"] }
+        2) you have to write $eq for "="
+        3) used indexes for number of operations only ($eq, $lt, $lte, $gt or $gte)
+
+    Example-1:
+        db.orders.find({
+            $expr: {
+                $lt: [                                                      // we want arg1 < arg2
+                    { $subtract: ["$deliveryDate", "$orderDate"] },         // arg1 = deliveryDate - orderDate
+                    3 * 24 * 60 * 60 * 1000                                 // arg2 = 3 days in millisec
+                ]
+            }
+        })
+
+    Example-2:
+        db.tasks.find({
+            $expr: {
+                $gt: [                                                      // we want arg1 > arg2
+                    { $subtract: ["$completedAt", "$createdAt"] },          // arg1 = completedAt - createdAt
+                    { $cond: [                                              // arg2 = result of condition check
+                            { $eq: ["$isUrgent", true] },                   // if flag is urgent  - take the first value, otherwise the second
+                            86400000,                                       // 1 day in millisec
+                            604800000                                       // 7 days in millisec
+                        ]
+                    }
+                ]
+            }
+        })
+
+
+//********************** __ $cond __ *****************************
+    Could be both in if-else form and in trenary operator form. In if-else you have to write else part.
+    Not used indexes. Do not use over 3 nested cond - performancer issue.
+
+    Example-1 (if-else):
+        db.products.aggregate([
+            { $addFields: {
+                    stockStatus: {
+                        $cond: {
+                            if: { $gt: ["$quantity", 10] },
+                            then: "In Stock",
+                            else: {
+                                $cond: {
+                                    if: { $gt: ["$quantity", 0] },
+                                    then: "Low Stock",
+                                    else: "Out of Stock"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        ])
+
+    Example-2 (trenary):
+        db.orders.aggregate([
+            { $group: {
+                _id: "$category",
+                revenueNY: {
+                    $sum: {
+                        $cond: [{ $eq: ["$city", "NY"] }, "$amount", 0]
+                    }
+                },
+                revenueOther: {
+                    $sum: {
+                        $cond: [{ $ne: ["$city", "NY"] }, "$amount", 0]
+                    }
+                }
+            }}
+        ])
+
+
+//********************** __ $switch __ *****************************        
+Do not use indexes.
+
+    Example-1:
+        $switch: {
+            branches: [
+                { case: { $eq: ["$status", "A"] }, then: "Active" },
+                { case: { $eq: ["$status", "D"] }, then: "Disabled" }
+            ],
+            default: "Unknown"
+        }
+
+    Example-2:
+        $addFields: {
+            deliveryZone: {
+                $switch: {
+                    branches: [
+                        { 
+                            case: { $and: [ { $gt: ["$weight", 100] }, { $eq: ["$type", "heavy"] } ] }, 
+                            then: "Cargo Terminal" 
+                        },
+                        { 
+                            case: { $in: ["$city", ["NY", "LA", "Chicago"]] }, 
+                            then: "Urban Express" 
+                        },
+                        { 
+                            case: { $lt: ["$amount", 10] }, 
+                            then: "Economy" 
+                        }
+                    ],
+                    default: "Standard Shipping"
+                }
+            }
+        }
+
+//********************** __ $dateToString __ *****************************
+    Used for:
+        Convert date into string type
+
+    Schema:
+        { $dateToString: {
+            format:   "<format>",
+            date:     "<date>",
+            timezone: "<timezone>",
+            onNull:   "<return this field in case date is null>"
+        }}
+
+    Example:
+        db.orders.aggregate([
+            { $group: {
+                _id: {
+                    month: {                            // new field name
+                        $dateToString: {
+                            format: "%Y-%m",            // YYYY-MM
+                            date: "$createdAt"          // date source field
+                        }
+                    }
+                },
+                totalAmount: { $sum: "$amount" },
+                count: { $sum: 1 }
+            }},
+            { $sort: { "_id.month": 1 } }
+        ])
+
+        Returned:
+            { _id: { month: "2024-01" }, totalAmount: 150, count: 1 }
+            { _id: { month: "2024-02" }, totalAmount: 275, count: 2 }
+            { _id: { month: "2024-03" }, totalAmount: 50,  count: 1 }
+
+    Example-2:
+        db.orders.aggregate([
+            { $group: {
+                _id: {
+                    dayOfWeek: { $dayOfWeek: "$createdAt" },    // 1 = Sunday
+                    dateStr: {                                  // new field name
+                        $dateToString: {
+                            format: "%Y-%m-%d",                 // format of representation
+                            date: "$createdAt"                  // date source field
+                        }
+                    }
+                },
+                revenue: { $sum: "$amount" }
+            }}
+        ])
+
+        Returned:
+            { _id : { dayOfWeek : 1,  dateStr : 2024-01-15}, revenue : 150}
+
+
+//********************** __ $lookup __ *****************************
+    SQL LEFT OUTER JOIN in Mongo. In case there was a field mentioned in "as" - it will be overriden with result of $lookup operation.
+    Sometimes its better to use code to join results instead of deling with DB:
+        - lookup could be problematic for sharded collections
+        - no caching benefits available
+        - takes a huge processing resources on DB
+        - sometimes join conditions much easer to be written in code instead of lookup expression
+
+    Schema:
+        db.orders.aggregate([
+            { $lookup: {
+                from:         "users",      // another collection name
+                localField:   "userId",     // field in current collection
+                foreignField: "_id",        // another collection field
+                as:           "userInfo"    // field in response that hold an array of info, taken from another collection
+            }}
+        ])
+
+        Returned:                               // current document + new field that hold data from another collection
+            {
+                _id: 1,
+                userId: 101,
+                amount: 150,
+                userInfo: [ { _id: 101, name: "Alice", city: "TA" }]    // data from another collection
+            }
+    
+    Example-1:
+        db.orders.aggregate([
+            { $lookup: {
+                    from:         "users",
+                    localField:   "userId",
+                    foreignField: "_id",
+                    as:           "userInfo"
+                }
+            },
+            { $unwind: {                            // convert into object
+                    path: "$userInfo",              // wich field to convert
+                    preserveNullAndEmpty: true      // do not remove if array is empty
+                }
+            },
+            { $project: {                           // what to present on screen
+                    amount: 1,                      
+                    status: 1,
+                    userName: "$userInfo.name",     // take data from the just converted (at stage $unwind) object
+                    userCity: "$userInfo.city"      // take data from the just converted (at stage $unwind) object
+                }
+            }
+        ])
+
+        Returned:
+            { amount: 1500, status: "completed", userName: "Alice", userCity: "NY" }
+            { amount: 75, status: "pending", userName: "Bob", userCity: "Berlin" }
+
+    Example-2:
+        We need to use block let as inside pipline we have no access to the original document.
+        db.orders.aggregate([
+            { $lookup: {
+                    from: "users",
+                    let: { ordUserId: "$userId", ordAmount: "$amount" },                    // takes from current collection and save under new names 
+                    pipeline: [
+                        { $match: {
+                            $expr: {
+                                $and: [
+                                    { $eq: ["$_id", "$$ordUserId"] },
+                                    { $eq: ["$city", "NY"] }
+                                ]
+                            }
+                        } },
+                        { $project: { 
+                            name: 1, 
+                            city: 1 } 
+                        } 
+                    ],
+                    as: "nyUser"
+                }
+            }
+        ])
+
+//********************** __ $arrayElemAt __ *****************************
+    Schema:
+        $arrayElemAt: [ <array or path to field that is array>, <index> ]
+
+    Example-1:
+        db.orders.aggregate([
+            { $lookup: {                                    // as per definition, lookup will return an array
+                    from: "users",
+                    localField: "userId",
+                    foreignField: "_id",
+                    as: "userArray"                         // name of the field where returned array located
+                }
+            },
+            { $addFields: {
+                user: { $arrayElemAt: ["$userArray", 0] }    // takes the first element of returned by 1st stage array
+            }}
+        ])
+
+    Example-2:
+        $addFields: {
+            lastLogin: { $arrayElemAt: ["$loginHistory", -1] }  // last element in the array
+        }
+
+//********************** __ $addFields __ *****************************
+    Used for:
+        Add new fields into the document or override the existed.
+
+    Example-1:
+        { price: 100, quantity: 2 }                                     // existing doc
+
+        db.orders.aggregate([
+            { $addFields: {                                             // list of fields we are going to add into the existing doc
+                totalAmount: { $multiply: ["$price", "$quantity"] },
+                status: "processed"
+            }}
+        ])
+
+        Returned:
+            { price: 100, quantity: 2, totalAmount: 200, status: "processed" }
+
+    Example-2:
+        db.orders.aggregate([
+            { $addFields: {
+                    amountWithTax: { $multiply: ["$amount", 1.2] },
+                    statusLabel: {
+                        $switch: {
+                            branches: [
+                                { case: { $eq: ["$status", "completed"] }, then: "Executed" },
+                                { case: { $eq: ["$status", "pending"]   }, then: "Pending" },
+                                { case: { $eq: ["$status", "cancelled"] }, then: "Cancelled" }
+                            ],
+                            default: "Not known"
+                        }
+                    },
+                    year: { $year: "$createdAt" },
+                    tagsCount: { $size: "$tags" }
+                }
+            }
+        ]) 
+
+    Example-3:
+        db.orders.aggregate([
+            { $lookup: {
+                    from: "users", 
+                    localField: "userId",
+                    foreignField: "_id", 
+                    as: "userInfo"
+            }},
+            { $addFields: {
+                userName: { $arrayElemAt: ["$userInfo.name", 0] },
+                userCity: { $arrayElemAt: ["$userInfo.city", 0] },
+                isHighValue: { $gte: ["$amount", 100] },
+                displayDate: {
+                    $dateToString: {
+                        format: "%d.%m.%Y",
+                        date: "$createdAt"
+                    }
+                }
+            }},
+            { $unset: "userInfo" }                          // remove array with info from another collection (added due to lookup stage)
+        ]) 
+
+    Limitations:
+        fields created in addFields are not indexed.
+
+
+//********************** __ $ifNull __ *****************************
+    Used for:
+        Check field value to not fall down due to null/undefined value
+
+    Schema:
+            $ifNull: [ <expression>, <replacement_if_null> ] 
+        OR 
+            $ifNull: [ "$field1", "$field2", "$field3", "Default Value" ]
+
+    Example-1 (schema-1):
+        $addFields: {
+            finalPrice: { 
+                $multiply: [ "$price", { $ifNull: ["$discount", 1] } ]          // if discount = null/undefined, 1 will be used
+            }
+        }
+
+    Example-2 (schema-2):
+        $project: {
+            displayName: { $ifNull: ["$nickname", "$firstName", "Guest"] }      // first non-null/defined will be used
+        }
+
+//********************** __ $unwind __ *****************************
+    Used for:
+        Split the doc with an array of N elements into N docs.
+
+    Schema:
+        { $unwind: {
+            path: "$tags",                          // split by this array field "tags" 
+            includeArrayIndex: "tagIdx",            // field that will hold the element index inside array
+            preserveNullAndEmptyArrays: true        // save splitted docs if the array was null/empty
+        }}
+
+    Before $unwind: 
+        { _id: 1, tags: ["electronics", "sale"] }
+    After $unwind:
+        { _id: 1, tags: "electronics" }
+        { _id: 1, tags: "sale" }        
+
+    Example-1:
+        db.orders.aggregate([
+            { $unwind: { 
+                path: "$tags", 
+                includeArrayIndex: "tagIndex"                                                   // field that hold element index inside array
+            }},
+            { $addFields: {
+                _id: { $concat: [ { $toString: "$_id" }, "_", { $toString: "$tagIndex" } ] }    // new key = _id + "_" + tagIndex
+            }},
+            { $out: "orders_by_tags" }                                                          // returned as collection named "orders_by_tags" 
+        ])
+
+    Example-2 (without includeArrayIndex):
+        { _id: 1, tags: ["a", "b"] }    // give 2 docs after splitting
+        { _id: 2, tags: [] }            // give no results after splitting as array is empty
+        { _id: 3 }                      // give no results after splitting as field is not defined in original doc
+
+    Example-3 (with includeArrayIndex):
+        { _id: 1, tags: ["a", "b"] }    // give 2 docs after splitting
+        { _id: 2, tags: [] }            // give 1 result after splitting
+        { _id: 3 }                      // give 1 result after splitting 
+
+    Limitations:
+        _id should be unique only on disc, but aggregation executed in memory, so _id should not be unique. So all splitted docs while them are in memory (in aggregation pipline) will has the same _id value. To overcome the point when you go to return data you can:
+            - rename the field in projection stage = { $project: { _id: 0, originalId: "$_id", tags: 1 } }
+            - use includeArrayIndex
+            - generate new id
+
+
+//********************** __ $filter __ *****************************
+    Used for:
+        Filter array without flatting. Return array with elements that passed conditions.
+
+    Schema:
+        { $filter: {
+            input: "$tags",         // original array
+            as: "tag",              // name of each elemnt inside the array. Give an option to work with each element.
+            cond: { ... }           // filtering condition
+            limit: X                // takes first X docs
+        }}
+
+    Example-1:
+        db.orders.aggregate([
+            { $addFields: {
+                longTags: {
+                    $filter: {
+                        input: "$tags",                                 // original array named "tags"
+                        as:    "tag",                                   // each element inside the array named "tag"
+                        cond:  { $gt: [{ $strLenCP: "$$tag" }, 4] }     // "tag" value length should be > 4
+                    }
+                }
+            }}
+        ])
+
+    Example-2:
+        { _id: 1, items: [
+            { name: "phone",  price: 500, qty: 1 },
+            { name: "case",   price: 20,  qty: 2 },
+            { name: "tablet", price: 300, qty: 1 }
+        ]}
+
+        db.orders.aggregate([
+            { $addFields: {
+                expensiveItems: {                                   // new field name
+                    $filter: {
+                        input: "$items",
+                        as:    "item",
+                        cond:  { $gte: ["$$item.price", 100] }      // include only the items with price > 100
+                    }
+                }
+            }}
+        ])
+
+        Returned:
+            { _id: 1,
+                items: [ 
+                    { name: "phone",  price: 500, qty: 1 },
+                    { name: "case",   price: 20,  qty: 2 },
+                    { name: "tablet", price: 300, qty: 1 } 
+                ],
+                expensiveItems: [
+                    { name: "phone",  price: 500, qty: 1 },
+                    { name: "tablet", price: 300, qty: 1 }
+                ]
+            }
+
+//********************** __ $reduce __ *****************************
+    Used for:
+        Pass over the array and collect some result
+
+    Schema:
+        { $reduce: {
+            input: "$tags",                 // array
+            initialValue: <startValue>,     // ususally 0 for sum, 1 for multiplication
+            in: {                           // what to do on each step 
+                                            // $$value — current accumulator
+                                            // $$this  — current element of the array
+            }
+        }}
+
+    Example-1 (better to use $sum):
+        db.orders.aggregate([
+            { $addFields: {
+                totalAmount: {
+                    $reduce: {
+                        input: "$items.price",
+                        initialValue: 0,
+                        in: { $add: ["$$value", "$$this"] }
+                    }
+                }
+            }}
+        ])
+
+    Example-2:
+        db.orders.aggregate([
+            { $addFields: {
+                tagsString: {
+                    $reduce: {
+                        input: "$tags",
+                        initialValue: "",
+                        in: {
+                            $cond: {
+                                if:   { $eq: ["$$value", ""] },                     // if it's first step
+                                then: "$$this",                                     // just get element
+                                else: { $concat: ["$$value", ", ", "$$this"] }      // otherwise accumulator = new element + "," + accumulator
+                            }
+                        }
+                    }
+                }
+            }}
+        ])
+
+    Example-3:
+        db.orders.aggregate([
+            { $addFields: {
+                orderTotal: {
+                    $reduce: {
+                        input: "$items",
+                        initialValue: 0,
+                        in: {
+                            $add: [
+                                "$$value",
+                                { $multiply: ["$$this.price", "$$this.qty"] }
+                            ]
+                        }
+                    }
+                }
+            }}
+        ])
+
+    Example-5
+        db.orders.aggregate([
+            { $match: {                                             // filter tasks created at Feb 2024 and completed on today
+                status: "completed",
+                createdAt: {
+                    $gte: ISODate("2024-02-01"),
+                    $lt:  ISODate("2024-03-01")
+                }
+            }},
+            { $lookup: {                                            // get users
+                from: "users", 
+                localField: "userId",
+                foreignField: "_id", 
+                as: "userInfo"
+            }},
+            { $match: {                                             // filter by city using data retrieved by $lookup stage
+                "userInfo.city": "NY"
+            }},    
+            { $addFields: {
+                userName: { $arrayElemAt: ["$userInfo.name", 0] },
+                displayDate: {
+                    $dateToString: {
+                        format: "%d.%m.%Y",                         // "dd-MM-YYYY"
+                        date: "$createdAt",
+                        timezone: "US/NY"
+                    }
+                },
+                expensiveItems: {                                   // only items with price > 100
+                    $filter: {
+                        input: "$items",
+                        as:    "item",
+                        cond:  { $gte: ["$$item.price", 100] }
+                    }
+                },
+                itemsTotal: {                                       // total = sigma(quantity*price)
+                    $reduce: {
+                        input: "$items",
+                        initialValue: 0,
+                        in: { 
+                            $add: ["$$value", { $multiply: ["$$this.price", "$$this.qty"] }] 
+                        }
+                    }
+                }
+            }},
+            { $unset: ["userInfo", "userId"] },                         // remove auxiliar fields
+            { $sort: { itemsTotal: -1 } }                               // sort response in DESC order
+        ])

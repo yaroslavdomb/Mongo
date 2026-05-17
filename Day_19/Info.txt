@@ -1,0 +1,96 @@
+//********************** __ BASIC __ *****************
+Usual data:
+    - regular collection (original data saved on disc)
+    - internal search mechanism: search according to your current request
+    - Fast work with original data (kept on disc).
+    - Can create indexes
+    - Access to all Fields
+
+Views = 
+    - virtual collection (you save aggregation pipline formula) 
+    - internal search mechanism: search according to your saved aggregation pipline AND your current request.
+    - slow work as each time it run it create View again
+    - For read only (no update/replace/insert/delete) 
+    - You can't create new indexes on view, indexes on basic collection will be used
+    - You can limit access to some fields
+    - No full-text search
+    - Can create chain of views (view based on another view)
+    - data returned after $lookup has no indexes, so introducing $lookup into view can be a trap
+
+Materialized View = 
+    - regular collection (original data saved on disc)
+    - internal search mechanism: search according to your current request
+    - Fast work with data saved after aggregation pipline (kept on disc).
+    - Can create indexes
+
+There are 2 types of Views:
+    - Standard View                 = create aggregation pipline and save it but do not touch data itself
+    - On-Demand Materialized View   = create aggregation pipline and save it AND save data passed through the pipline on disc   
+
+
+//********************** __ CREATE __ *****************
+    Example-1 = old:
+        db.createCollection(
+            "completedOrders",                          // view name
+            {
+                viewOn: "orders",                       // collection from wich view will be created
+                pipeline: [
+                    { $match: { status: "completed" } } // select docs with status "completed" only
+                ],                
+                collation: {                            // optional block to define language rules of string comparision
+                    locale: "ru",
+                    strength: 2 
+                }
+            }
+        )
+
+    Example-2 = new:
+        db.createView(                                  // command to create view
+            "completedOrders",                          // view name
+            "orders",                                   // collection from wich view will be created
+            [                                           // view aggregation pipline
+                { $match: { status: "completed" } },    // select docs with status "completed" only
+                { $project: { status: 0 } }             // filter fields - as previous stage no need to show status, it always will be "completed" 
+            ]
+        )
+
+//********************** __ UPDATE __ *****************
+1) Change Streams — define trigger on original collection change
+    When to use:
+        - Near real-time data
+        - Data update not so ofthen 
+        - Hard logic of update
+    
+    Example: 
+        const changeStream = db.orders.watch()
+        changeStream.on('change', async (change) => {
+            if (['insert', 'update', 'replace'].includes(change.operationType)) {
+                await refreshMaterializedView()
+            }
+        })
+
+2) Batching/Scheduled job
+    When to use:
+        - Huge data in update
+        - Can wait till the next update time
+        - Creation very havy reports
+
+    Example:
+        cron.schedule('0 * * * *', () => {
+            db.orders.aggregate([...pipline..., { $merge: "monthlyStats" }])
+        })
+
+3) Application Level
+    When to use:
+        - It's critical to get the most updated info immediatly after operation
+        - You need to update single doc
+
+    Example:
+        async function createOrder(orderData) {
+            await db.orders.insertOne(orderData)
+            await refreshStats(orderData.userId)   // update view per user
+        }
+
+
+//********************** __ ATTENTION __ *****************
+- There is no auto incremental for Materialized View like in SQL (Postgres/Oracle), so after update original collection data in view should be updated manually.
