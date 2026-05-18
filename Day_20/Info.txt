@@ -1,0 +1,185 @@
+//********************** __ BASIC __ *******************
+MongoDB is open for anyone who can access 27017 by default.
+Checks are:
+    Authentication  = login + password
+    Authorization   = what can you do
+In MongoDB both are checked with --auth
+
+Start options:
+    1) mongod --auth --port 27017 --dbpath /data/db         // you are using flag --auth in MongoDB start
+    2) security:
+            authorization: enabled                          // you are using flag security in mongod.conf file, reccommended for prod
+    3) MONGOD_OPTS="--auth" mongod                          // you are using flag 
+
+If you have no new users in DB, you will be able to connect to MongoDB WITHOUT authorization/authentication.
+Once user will be created - you have to do auth for all others users.
+
+//********************** __ FIRST SU CREATION __ *******************
+1) Connection:
+    mongod --port 27017 --dbpath /data/db
+
+2) Create user:
+    use admin
+
+    db.createUser({
+        user: "superadmin",
+        pwd: "Password!2026",
+        roles: [
+            { role: "userAdminAnyDatabase", db: "admin" },
+            { role: "readWriteAnyDatabase", db: "admin" }
+        ]
+    })
+
+3) Restart DB:
+    mongod --auth --port 27017 --dbpath /data/db
+
+4) Reconnect ot Mongo:
+    mongosh "mongodb://superadmin:Password!2026@localhost:27017/admin"                          // via browser
+    mongosh --host localhost --port 27017 -u superadmin -p --authenticationDatabase admin       // via processes
+
+
+//********************** __ ROLES __ *******************
+ROLE = collection of privilegies.
+privilegy = what you can do AND over which resources you can do it
+
+LVL = single DB
+    read  
+        Resources:  any non-system collections. 
+        Actions:    find, listCollections, listIndexes, dbStats, collStats
+
+    readWrite
+        read +
+        Actions:    insert, update, remove, createCollection, dropCollection, createIndex, dropIndex, renameCollectionSameDB
+
+    dbAdmin
+        No access to data/users, but can manage schema/indexes/statistics/profilers.
+
+    userAdmin
+        No access to data, but can manage the users and access to data inside this collection
+
+    dbOwner 
+        readWrite + dbAdmin + userAdmin
+
+LVL = all DBs in cluster
+    readAnyDatabase         = read
+    readWriteAnyDatabase    = readWrite
+    dbAdminAnyDatabase      = dbAdmin
+    userAdminAnyDatabase    = userAdmin
+    
+    clusterAdmin            = full control over cluster (sharding, replica set, balancing)
+    clusterMonitor          = read-only cluster monitoring
+    backup + restore        = for mongodump / mongorestore only
+    root                    = xxxAnyDatabase + clusterAdmin + backup + restore
+
+//********************** __ USER CREATION __ *******************
+1) Before user creation we switching on DB we are going to manage:
+    use admin
+
+2) Create user command:
+    db.createUser({
+        user: "<user_name>",
+        pwd: "<password>",                              // you can use passwordPrompt() to not put it in the logs
+        roles: [{   
+            role: "<role_name>", 
+            db: "<db_name_role_related_to>" 
+        }],
+        authenticationRestrictions: [{                  // optional section of restrictions by specific IPs
+            clientSource: ["192.168.1.0/24"],           // specific subnet only
+            serverAddress: ["127.0.0.1"]                // specific IPs addresses
+        }]
+    })
+
+Example-1:
+    use myAppDB                     
+    db.createUser({                                     // DB = myAppDB, privilegies = readWrite
+        user: "app_service",
+        pwd: passwordPrompt(),
+        roles: [{ role: "readWrite", db: "myAppDB" }]
+    })
+
+Example-2:
+    use myAppDB
+    db.createUser({                                     // DB = myAppDB, privilegies = read
+        user: "analyst_eva",
+        pwd: passwordPrompt(),
+        roles: [{ role: "read", db: "myAppDB" }]
+    })
+
+
+Example-3:
+    use myAppDB
+    db.createUser({                                     // DB = myAppDB, privilegies = dbAdmin
+        user: "dba_alice",
+        pwd: passwordPrompt(),
+        roles: [{ role: "dbAdmin", db: "myAppDB" }]
+    })
+
+Example-4:
+    use admin
+    db.createUser({                                     // DB = myAppDB, privilegies = clusterMonitor
+        user: "prometheus_agent",
+        pwd: passwordPrompt(),
+        roles: [{ role: "clusterMonitor", db: "admin" }]
+    })
+
+Example-4:
+    use admin
+    db.createUser({                                     // DB = myAppDB, privilegies = backup + restore
+        user: "backup_bot",
+        pwd: passwordPrompt(),
+        roles: [
+            { role: "backup",  db: "admin" },
+            { role: "restore", db: "admin" }
+        ]
+    })
+
+//********************** __ ROLES MANAGMENT __ *******************
+
+db.getUsers()                                           = get all users in this db
+
+db.getUser("analyst_eva")                               = get user with all his privilegies
+
+db.grantRolesToUser("analyst_eva", [                    = add role
+  { role: "readWrite", db: "reportsDB" }
+])
+
+db.revokeRolesFromUser("analyst_eva", [                 = remove role
+  { role: "readWrite", db: "reportsDB" }
+])
+
+db.changeUserPassword("analyst_eva", passwordPrompt())  = change password
+
+db.dropUser("analyst_eva")                              = delete user
+
+db.getRole("readWrite", { showPrivileges: true })       = see all the actions you can do having "readWrite" privilege
+
+
+//********************** __ CUSTOM ROLES __ *******************
+1) Set DB:
+    use shopDB
+
+2) Create role:
+    db.createRole({
+        role: "shopManager",                                            // name of new created role
+        privileges: [                                                   // list of resources and privilegies for new role
+            {
+                resource: { db: "shopDB", collection: "orders" },
+                actions: ["find", "insert", "update"]
+            },
+            {
+                resource: { db: "shopDB", collection: "products" },
+                actions: ["find", "insert", "update", "remove"]
+            }
+            collection: ""                                              // for witch collections it will work
+        ],
+        roles: [                                                        // shopManager also wil inherit the following existing roles 
+            { role: "read", db: "shopDB" }
+        ]
+    })
+
+3) Create user with new role:
+    db.createUser({
+        user: "manager_anna",
+        pwd: passwordPrompt(),
+        roles: [{ role: "shopManager", db: "shopDB" }]
+    })

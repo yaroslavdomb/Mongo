@@ -1,0 +1,86 @@
+// ******************************** __ BASIC __ *************************
+Replica set = group of MOngod process that hold the same data.
+Replica can have min 3 members, max 50 (but only 7 can vote in case of eleections).
+
+// ******************************** __ START __ *************************
+1) You can run on each of servers
+        mongod --replSet "rs0" --port 27017 --dbpath /data/db --bind_ip localhost,<serverIP>
+
+    OR
+
+    you can config it inside mongo.conf file:
+        replication:
+            replSetName: "rs0"
+        net:
+            bindIp: localhost,192.168.1.10
+
+2) Start elections:
+    rs.initiate({
+        _id: "rs0",
+        members: [
+            { _id: 0, host: "mongo1:27017" },
+            { _id: 1, host: "mongo2:27017" },
+            { _id: 2, host: "mongo3:27017" }
+        ]
+    })
+
+// ******************************** __ CONFIGURATION OF REPLICA __ *************************
+{
+    _id: 0,
+    host: "mongo1:27017",
+    priority: 1,              // 0–1000. 0 = never can be primary. The chance to be seleceted grow with the number
+    votes: 1,                 // 0/1. If priority > 0 it can't has votes = 0
+    hidden: true,             // clients do not see this host. Used for analitics/backups
+    secondaryDelaySecs: 3600, // delay of that replica in seconds. Used as backup copy to prevent human errors. Additional layer of backup.
+    buildIndexes: true        // should the indexes be build
+}
+
+
+// ******************************** __ P/S/A __ *************************
+P = Primary. The only replica accept write command. In parallel it goes into oplog. Then secondaries read the oplog and apply the changes to their data.
+    In case P loose connection to majority it will send signal to all reachable that from now he's secondary (and trigger elections).
+
+S = Secondary. Read the primary oplog (or oplog of another secondary) and apply the discovered changes over his data.
+
+A = Arbitier. Do not store data, can voute on elections (votes:1), can't become primary.
+
+
+// ******************************** __ HEARTBEATS __ *************************
+Each member send each 2 seconds signal to others members of replica. If member do not response in 10 sec it will be marked as unreachable.
+Each message has the following data:
+    - member status (P/S/A)
+    - position in oplog (to know who hold the most fresh data)
+    - replica set configuration
+
+
+// ******************************** __ ELECTIONS __ *************************
+Condition to start elections:
+    - Primary do not response over 10 sec for hearbeats
+    - Primary send signal for elections
+    - Reconfiguration of the set
+
+During election client can't write (NotPrimaryError) into Mongo.
+
+Due to election can be situation that old primary with writeConcern, w:0 could fail and once return it will find that some operation do not exist on new P.
+Docs related to such operations will be moved into /data/db/rollback/ in BSON format = rollback/
+To protect yourself from such situation use { writeConcern: { w: "majority", wtimeout: 5000 } } - or operation itself will fail, OR majority of replica will has updated oplogs.
+
+S1 detect that P do not answer in hearbeats. S1 set itself as Candidate, set term+1 and send broadcast msg (replSetRequestVotes) to all others Sx.
+If S2 got signal from S1 and (S2-term > S1-term || S2-oplog > S1-oplog) then S1 do "step down" and vote for S2.
+
+Vote mechanism:
+    Candidate.oplog.term > Voter.oplog.term ==> Candidate win
+    Candidate.oplog.term = Voter.oplog.term && Candidate.oplog.ts > Voter.oplog.ts ==> Candidate win. This step skipped by A as he has no data, so can't compare by oplogs.
+Otherwise Candidate will not get voice from this voter
+
+// ******************************** __ REPLICATION LAG __ *************************
+The replication lag exist cause:
+    - P should:
+        - do oplog operation 
+        - execute updates on data
+    - S should:
+        - get oplog from primary
+        - execute updates on data
+        - write changes into its own oplog 
+
+In Mongo there is a mechanism(backpressure) that slow the primary if the lag on secondary overhead 10 seconds. If lag > 60 sec it goes to RECOVERING state and need totall sync with primary.

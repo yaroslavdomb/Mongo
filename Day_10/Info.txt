@@ -1,4 +1,4 @@
-//**************** __ Embedding (De-Normalization) __ **************************
+// **************** __ Embedding (De-Normalization) __ **************************
 Keep all related details in a single document. This strategy is opposite to SQL db normalization.
 Technically it's possible due to capability to work with arrays and objects in NoSQL dbs.
 
@@ -12,17 +12,34 @@ Cons:
     - Data duplication
     - Analizys inside complex objects is harded
 
-//**************** __ Referencing (Normalization) __ **************************
+When to use:
+    - default due to Mongo definition
+    - relationship 1:1 / 1:Few
+    - object B has meanless without A
+    - both A and B should come once you read A 
 
+// **************** __ Referencing (Normalization) __ **************************
+When to use:
+    - relationship 1:N / M:N
+    - B data is independent / frequntly requested as single data
+    - B data changed frequently
 
-//**************** __ 1:1 __ **************************
+// **************** __ 1:1 __ **************************
 Implemented almost always via Embedding. The only exception - due to the data size (when it will overcome 16Mb).
 
-//**************** __ 1:N __ **************************
+// **************** __ 1:N __ **************************
 Implementing depend on N. If it's close to tens - Embedding, if it's close to tens thousands - Referencing.
 
-//**************** __ N:N __ **************************
+// **************** __ N:N __ **************************
 1) Implemented with two-direction referencing: there is an array of references (_id) from each side. 
 The arrays of ids is the most popular solution.
 
 2) Another option to implement N:N is to create intermediate collection with all pairs of references
+
+// **************** __ One-to-Squillions __ **************************
+Situation when you need to create a link to a huge number of docs in single. Example: links to logs in server file.
+Issue:
+    document with so many links is a huge and to work with it all the doc should be in memory.
+Solution: 
+    - use Referencing & 
+    - create inverted links in each log document, so each log will have a link to server file - only one link, that is not changed so frequently.

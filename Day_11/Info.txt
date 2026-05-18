@@ -114,7 +114,14 @@ Example of full structure:
     default_language        = for text indexes only. Activate grammar rules for specific language for proper text processing
 
 
-//****************************** __ Intersection index __ **************************
+// ****************************** __ HIDDEN INDEX __ **************************
+    - querry planner does not see/use this index
+    - it's updated after each operation like insert, update or delete
+    - to check how it works with this index - use hint()
+    - you can't make index of _id hidden 
+
+
+// ****************************** __ Intersection index __ **************************
 Used for:
     Search when you have 2 simple indexes, but you want to search using both fields.
 
@@ -162,3 +169,19 @@ Example:
 //****************************** __ Limitation __ **************************
 1) You can't create index with 2 or more array-fields (in SQL it's looks like 4NF) - too fast growing speed of table records once adding couple of addition values.
 2) You can create only one text index per collection. If you need search by number of fields all of them should be included into this index.
+
+
+//****************************** __ EXPLAIN __ **************************
+There are 3 types of verbosity in explain() method:
+
+- queryPlanner (default)
+    no request execution. Check what indexes could be used. For fast check if the indexes were used.
+    db.orders.find({ status: "active" }).explain();
+    
+- executionStats
+    request execution + statistics of winner execution. The most used type for optoimization.
+    db.orders.find({ status: "active" }).explain("executionStats");
+    
+- allPlansExecution  
+    request execution + statistics of winner execution + parallel evaluation of rejected plans. Need to understand why the wrong index was selected by optimizer
+    db.orders.find({ status: "active" }).explain("allPlansExecution");

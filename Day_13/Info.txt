@@ -18,13 +18,20 @@ You can get cursor in Mongo with:
 
 
 //************************** __ Tailable Cursor __ *********************
-    Keep alive and do not closed after documents finished, it stops and wait for new docs.
-    Do not use indexes. First full scan is very expensive but all others - chep enough.
-    If there is no docs in collection on first scan the t-cursor dead, even then the docs could come.
-    It could become non-valid if the data comes faster than you read it.
+Created for capped collections (on DB side) and Long running processes/daemons (on application side) only. The point is that any document inserted into the capped collection will be immediatly checked and sent to your application. That's why the tailable cursor should never be closed - it's type of dogwatch mechanism to keep an eye on collection.
+
+    - Keep alive and do not closed after documents search finished, it stops and wait for new docs.
+    - Do not use indexes. First scan (will be full) is very expensive, but all others - cheap enough (need to read only the delta)
+    - If there is no docs in collection on first scan t-cursor will dead. To prevent this behavior there is a flag awaitData. Another good solution - create single fake document and insert into collection. 
+    - It could become non-valid if the data comes faster than you read it.
+    - Can works with capped collections only. 
+    - Used in 
+        - outer applications: getting real-time data (chats, logs, tasks queue)
+        - Mongo system: in secondary nodes to follow over primary OpLog
 
 
 //************************** __ Cursor Methods __ *********************
+    noCursorTimeout()   = ignore cursor 10 min timeout. Once used you have to close it manually with "close()". Usable for long term requests.
     hasNext()           = return true if cursor has docs. In case the local batch is empty, it execute getMore() and then return the response.
     next()              = return current doc and move cursor futher
     forEach(fn)         = go over all remaining docs in cursor and apply the fn function for each one of them
@@ -32,8 +39,7 @@ You can get cursor in Mongo with:
     for ... of          = modern version instead of forEach(fn) / while
     toArray()           = return array of docs. Problem: it load all the docs after search simultaneously into the memory. Cursor closed automatically.
     limit(X)            = server will return no more than X docs
-    skip(X)             = server will skip X docs 
-    noCursorTimeout()   = ignore cursor 10 min timeout. Once used you have to close it manually with "close()"
+    skip(X)             = server will skip X docs     
     batchSize(n)        = set number of docs per batch
     maxTimeMS(X)        = set limit for operation execution in miliseconds on server side. Not include connection and so on. 
     objsLeftInBatch()   = show number of docs in local batch
