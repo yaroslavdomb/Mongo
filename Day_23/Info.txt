@@ -1,0 +1,67 @@
+Any change 
+    1) fixed in journal-file and only then 
+    2) it goes to DB to be applyed to docs.
+
+Each commitIntervalMs (by default  100 milis) buffer journal sends to disk.
+
+
+
+// **************************** __ WRITE PATH __ ****************************
+1) Client
+2) WiredTiger cacheRAM = memory for Mongo. It'salso called dirty pages cause ...
+3) Journal Buffer (WAL) = Write-Ahead-Log. Write (with fsync call) to the journal file each 0.1s/128k data.
+4) Journal File = file on disc where the data comes. Each file has up to 100Mb, this size can't be changed.
+5) Checkpoint = process that move data from (WiredTiger cacheRAM) to the (Data File) each 60 sec/2Gb data
+
+Once node crashs, all data from 2 and 3 will disappear. All data from 4 could be restores. All data from Data file is already saved.
+ journal flush = moving data from (3) to (4)
+
+// **************************** __ WRITE CONCERN __ ****************************
+{ writeConcern: { w: 0 } } = for bulk logs only (Strategy fire-and-forget)
+{ writeConcern: { w: 1 } } = default, Primary confirmed, could lost data
+{ writeConcern: { w: 2 } } = P + 1S cionfirmed
+{ writeConcern: { w: "majority" } } = prod standard
+
+j: true = option to get confirmation that change was registered on disk journal. It don't wait commitIntervalMs.
+{ writeConcern: { w: "majority", j: true, wtimeout: 5000 } } = example of max insuarence to get record in DB
+
+
+// **************************** __ READ CONCERN __ ****************************
+Which type of data reader will get and how fast?
+local           = default for primary. Most faster. There is a rollback issue (if Primary will fail bwfore sending last data to the others)
+available       = for sharded clusters only. Do not test majority. Can return the orphaned documents (docs migrated to the other shard). Used for non-critical scenarios.
+majority        = return data confirmed by most of nodes. No rollbck issue.
+snapshot        = return data confirmed by most of nodes. No rollbck issue. For transactions.
+linearizable    = check the primary node is still primary && only then read data from it. Most slower.
+
+readPreference:nearest      = send request ot the node with minimal latency, regardless to P/S it is.
+
+
+// **************************** __ ADDITIONAL EQUEST PARAMS __ ****************************
+COMMENT:
+    Add comment to any request. This comment could be shown in:
+        - db.currentOp() (operations that are executing right now), 
+        - slow query log (log of requests executed more than 0.1s) 
+        - system.profile (capped collection of executed operations. Could be enabled/disabled and also has profiling levels)
+
+    profiling levels:
+        0 = disabled. Prod for faster work.
+        1 = regular. Include comments. Can set additional properties for saving only part of operations
+        2 = total. Only for dev stage. Due to structure (capped collection) it remove old data very fast.
+
+collation   = language comparision rules
+
+
+// **************************** __ RECOVERING __ ****************************
+3 steps after crash:
+    1) search ID of last checkpoint in data files
+    2) search in journal file this ID
+    3) apply all operations after this ID to data
+
+If you have NO j: true = you can loose last 0.1sec data
+If you have j: true = you can't loose data at all cause all the data or already in journal or not accepted at all.
+
+
+// **************************** __ JOURNALING __ ****************************
+Starting from Mongo6.1 you can't remove journaling. In Atlas you can't remove journaling from the start version.
+Using j: false still use the journaling, but you'll get the answer immediatly, without real confirmation.

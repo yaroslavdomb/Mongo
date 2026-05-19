@@ -1,0 +1,54 @@
+//*************************** __ SHARDING __ *************************
+Sharding = (horizontal) splitting data between number of hosts.
+Sharded cluster consist from:
+    - mongos (get request from application and ask config server where data from request stored)
+    - config Server (know how data is splitted and on which node the requested data stored)
+    - data-bearing nodes (store the data)
+
+It's common for prod to hold exactly 3 conf servers for failure tolerance.
+Conf server know:
+    - routing Table
+    - chunks range - which keys related to which shards
+    - list of shards = addresses of all replica sets in claster
+    - statistica of balancer
+
+Mongos save in cache routing table.
+There could be 2 types of rewuests:
+    - Targeted query. Mongos know the exactly shard where to find the data.Example: db.users.find({ userId: 42 })
+    - Scatter-gather query. Mongos will need to send request to all the sharded nodes and merge the responses. Example: db.users.find({ email: "test@example.com" })
+Type depend on presenting in the request sharded key. If it's there - will be used Targeted query, otherwise Scatter-gather query.
+
+//*************************** __ SHARD KEY __ *************************
+SHARD KEY = immutable combination of fields (can be also a single) for each document.
+Sharded collection can hold only single shard key. 
+
+Types of sharding:
+    - Range (A-M = shard #1, N-Z = shard #2). Issues = hotspot 
+    - Hashed (hash by shared key), normal distribution between sharded nodes. Issue - can't be effective for ranges
+    - Zonal = move data to the scpecific sharded nodes by label
+
+Good key should have:
+    - high cardinality (a lot of unique values)
+    - normal distribution between key data
+    - no monothonic escalation (cause having such will lead to hotspot issue)
+
+//*************************** __ Chunks AND Balancer __ *************************
+Balancer checks that number of chunks on each node will be +/- equal. If on one thre are too many it start migration. You can W/R during the migration.
+Common practice to set balancer to do his job on the night as moving data can takes a lot of resources. You can get orphans docs if the process was stopped in the middle.
+Each chunk = 64Mb(default). If you write too many data into single chunk, it will be splitted onto 2 with 50% data each.
+
+
+//*************************** __ DB SHARDING __ *************************
+sh.enableSharding("mydb")                               // enable sharding for mydb database 
+db.users.createIndex({ userId: "hashed" })              // crete sharded index on "users" collection of hashed type
+sh.shardCollection("mydb.users", { userId: "hashed" })  // sharding collection
+sh.status()                                             // check status
+db.users.getShardDistribution()                         // set chunks distribution
+
+
+//*************************** __ WITH SHARDED COLLECTION YOU CAN'T __ *************************
+- grant unique indexes on non-sharded key (or its prefixes). Cause it will required to ask each sharded node each doc for this field.
+- do $lookup between sharded collections. Cause it will required to connect each one doc from coll1 with each one of docs in coll2.
+- use transactions easily - you need to get confirmation from all shared nodes involved into transaction and start only after it.
+- use $out easily - you can do it only if target is the same DB (see how $out is working)
+- sharding "local" and "config" collections. Cause its systems collections for internal use only.
