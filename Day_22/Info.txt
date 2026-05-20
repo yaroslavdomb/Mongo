@@ -1,6 +1,8 @@
 // ******************************** __ BASIC __ *************************
-Replica set = group of MOngod process that hold the same data.
+Replica set = group of Mongod processes (servers) that hold the same data.
 Replica can have min 3 members, max 50 (but only 7 can vote in case of eleections).
+
+SDAM = Server Discovery and Monitoring.
 
 // ******************************** __ START __ *************************
 1) You can run on each of servers
@@ -37,15 +39,16 @@ Replica can have min 3 members, max 50 (but only 7 can vote in case of eleection
 
 
 // ******************************** __ P/S/A __ *************************
+
 P = Primary. The only replica accept write command. In parallel it goes into oplog. Then secondaries read the oplog and apply the changes to their data.
     In case P loose connection to majority it will send signal to all reachable that from now he's secondary (and trigger elections).
 
 S = Secondary. Read the primary oplog (or oplog of another secondary) and apply the discovered changes over his data.
 
-A = Arbitier. Do not store data, can voute on elections (votes:1), can't become primary.
-
+A = Arbitier. Yes, it's a full server that has no data at all, has no opLog, but can vote on elections (votes:1). Can't become primary.
 
 // ******************************** __ HEARTBEATS __ *************************
+
 Each member send each 2 seconds signal to others members of replica. If member do not response in 10 sec it will be marked as unreachable.
 Each message has the following data:
     - member status (P/S/A)
@@ -55,7 +58,7 @@ Each message has the following data:
 
 // ******************************** __ ELECTIONS __ *************************
 Condition to start elections:
-    - Primary do not response over 10 sec for hearbeats
+    - Primary do not response over 10 sec (default) for hearbeats
     - Primary send signal for elections
     - Reconfiguration of the set
 
@@ -72,6 +75,8 @@ Vote mechanism:
     Candidate.oplog.term > Voter.oplog.term ==> Candidate win
     Candidate.oplog.term = Voter.oplog.term && Candidate.oplog.ts > Voter.oplog.ts ==> Candidate win. This step skipped by A as he has no data, so can't compare by oplogs.
 Otherwise Candidate will not get voice from this voter
+
+Meanwhile application if get signal that P is lost, start to ping each S/A each 0.5 sec. Once got the signal "I'm a new P" it redirect all the W operations there.
 
 // ******************************** __ REPLICATION LAG __ *************************
 The replication lag exist cause:

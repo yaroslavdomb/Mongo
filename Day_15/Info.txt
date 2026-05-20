@@ -1,8 +1,12 @@
 // ***************************** __ MAIN POINTS __  ***********************************
+0) To use transactions there are couple of counditions to be hold:
+    - Mongo run on replica/sharded - transaction mechanism based on opLog file that are not available on single instance.
+    - the driver should be WiredTiger and not some customization of it.
+    - each transaction should include session (start/close, transferring to the DB)
 1) Single operation on single doc is by default Atomic.
 2) read/write concerns defined on transaction level, not per operation
 3) transactions wants to read from primary (readPreference:Primary)
-4) Each transaction lasts 60 sec(transactionLifetimeLimitSeconds)
+4) Each transaction lasts 60 sec (could be changed with transactionLifetimeLimitSeconds flag)
 5) Limit of 16Mb related to the doc, not for transaction
 
 
@@ -19,13 +23,13 @@ CAP theorem = you can select only 2 from 3
     Availability
     Partition Tolerance
 
-ACID = C
+ACID = C from CAP
     Atomicity - all or nothing. Any error = full rollback.
     Consistency - for each operation it pass through validation schema if exists
     Isolation - 2 operation can be executed on the same document. Mongo immediatly set WriteConflict
     Durability - commit executes with writeConcern: { w: "majority" }
 
-BASE = A
+BASE = A from CAP
     Basically Available - grant response for any request, but could be with error due to data inconsistency
     Soft state - data could change the state (on replicas) due to syncronization
     Eventual consistency - sometimes, all the system will be in consystent state
@@ -129,12 +133,12 @@ Example:
 
 
 // ***************************** __ OpLog __  ***********************************
-Special capped collectin in db=local
+Special capped collectin in db = local
 Internally when you do write operation:
     1) You write into your target collection
     2) You write into oplog the instruction of your change
 
-Cause by default caped collection has limit, the time of records life in OpLog (capped collection) is limited.
+Cause by default capped collection has limit, the time of records life in OpLog (capped collection) is limited.
 It's Oplog Window. 
 
 Commands:

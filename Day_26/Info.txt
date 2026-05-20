@@ -1,0 +1,114 @@
+//************************ __ TRANSACTION ERRORS __ *****************************
+Usually, transaction deal with data and not with data structure, so in most cases it will lead to the issue if you'll do something with DB structure or with indexes inside transaction. In Mongo errors classified with labels, so the main method is err.hasErrorLabel("label_name").
+Label
+    - TransientTransactionError 
+        re-try all transaction. Means there was a network/system error inside the transaction. Need to close/rollback this session and start again all process from  startTransaction till commitTransaction.
+        Error examples:
+            - WriteConflict 
+            - Primary failover
+            - Network transient error
+            - NoSuchTransaction 
+    - UnknownTransactionCommitResult
+        it's occur once commitTransaction was send but driver didn't get response from Mongo server. Need to retry only command of commitTransaction. Due to idempotency it could be done number of times.
+    - no label error (Permanent Errors)
+        fatal or logic error. Retry logic is useless or even dangerous.
+        Error examples:
+            - Duplicate Key (from Mongo 8.1)
+            - TooLargeForCache (from Mongo 6)
+
+
+//************************ __ ERROR CALLBACK __ *****************************
+There are 2 options how to process the errors in Mongo:
+    - Callback API (session.withTransaction)
+        Automatically do start/commit transaction command. Automatically process TransientTransactionError and UnknownTransactionCommitResult errors with abort command if needed. Code much cleaner (no cycles,try/catch blocks and so on).
+    - Core API (manual control)
+        All retry code logic should be created by you. Could be used when the behavior should be much complex then just retry
+
+Example Callback API:
+    const session = client.startSession()
+    try {
+        await session.withTransaction(async (session) => {
+            await accounts.updateOne(               // each operation get session            
+                { _id: fromId },
+                { $inc: { balance: -amount } },
+                { session }
+            )
+            await accounts.updateOne(               // each operation get session            
+                { _id: toId },
+                { $inc: { balance: +amount } },
+                { session }
+            )
+        }, {
+            readConcern:  { level: "snapshot" },
+            writeConcern: { w: "majority" }
+        })
+    } finally {
+        await session.endSession()                  // always in finally
+    }
+
+Example Core API:
+    async function runWithRetry(client, fn, maxRetries = 5) {
+        let attempt = 0
+        while (attempt < maxRetries) {
+            const session = client.startSession()
+            try {
+                session.startTransaction({
+                    readConcern:  { level: "snapshot" },
+                    writeConcern: { w: "majority" }
+                })
+                const result = await fn(session)                
+                await commitWithRetry(session, maxRetries)                                            // Retry only "commit" for UnknownTransactionCommitResult
+                return result
+            } catch (err) {
+                await session.abortTransaction().catch(() => {})
+                if (err.hasErrorLabel("TransientTransactionError") && attempt < maxRetries - 1) {
+                    attempt++                    
+                    await sleep(Math.min(100 * 2 ** attempt + Math.random() * 100, 16000))            // Exponential backoff with jitter
+                    continue
+                }
+                throw err                                                                             // permanent error or maxRetries reached
+            } finally {
+                await session.endSession()
+            }
+        }
+    }
+
+    async function commitWithRetry(session, maxRetries = 5) {
+        let attempt = 0
+        while (attempt < maxRetries) {
+            try {
+                await session.commitTransaction()
+                return
+            } catch (err) {
+                if (err.hasErrorLabel("UnknownTransactionCommitResult") && attempt < maxRetries - 1) {
+                    attempt++
+                    await sleep(100 * 2 ** attempt)
+                    continue
+                }
+                throw err
+            }
+        }
+    }
+
+    The numbers here is a best practies:
+        base delay  = 100 milisec
+        max delay   = 16 sec
+        max retries = 5 times
+
+
+//************************ __ R/W RETRY __ *****************************
+Transactions grant ACID for couple of actions. But there are some commands that grant retry logic for single operation:
+    - Retryable Write 
+        driver do exactly 1 retry of the operation if get back from server error label TransientTransactionError. To grant idempotency operation used  session ID + txnNumber (operation number).
+    - Retryable Read
+        driver do exactly 1 retry of the operation if get back from server error for network errors
+By default these settings are ON.
+
+//************************ __ CAUSALITY CONSISTENT SESSIONS __ *****************************
+4 rules:
+    - Read Your Own Writes  = you'll see your data changes immediatly after you changed it (relationship W --> R for only your operations)
+    - Monotonic Reads       = once you read the more fresh data you should never see the old data (relationship R --> R for any operations)
+    - Monotonic Writes      = all writes operations will be executed exactly in the order you send it to Mongo
+    - Writes Follow Reads   = write operation will be executed only after the read operation if read operation was before in session
+
+Only operations with  majority read concern and majority write concern  can grant all 4 rules.

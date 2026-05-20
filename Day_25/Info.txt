@@ -1,0 +1,152 @@
+// ************************ __ WiredTiger Cache __ **************************
+As all cache data,  Mongo start to search in cache. If found - take the data from cache , if no - read the disk.
+Once you write data, it first go to the cache and then to disk (at checkpoint).
+Once data come to disk it will be saved in zip type (Snappy or Zlib). In cache data is not zipped.
+
+Algorythm   = LRU + priority
+Checkpoint  = each 60 sec/2 Gb data
+Size        = maximum of (0.5 * (RAM - 1Gb) , 256Mb)
+
+WT does not split cache on parts (w/r, sort/join buffers) but use the all cache as one huge space.
+Better to set cache size in manual way for containers (Mongo can detect wrongly size of memory)
+
+// ************************ __ MVCC __ **************************
+Multi-Version Concurrency Control
+
+Before using MVCC it was negative blocking.
+With MVCC: Mongo create snapshot of DB && cache at time the request come. If it's write request, the data will be changed in snapshot and not in DB itself
+
+No-Steal = do not stael place on disc for non-commited data. It means once you didn't committe your changes, those changes will not come to disk, it will remain in cache memory only.
+No-Force = Even if you saved the changes, they will not go to the disk immediately
+
+
+// ************************ __ WiredTigerHS.wt __ **************************
+Each document store 2 times - start and stop. Start = time when it became actual. Stop = time when it finished to be actual.
+Durable Timestamp = shows when we can delete the old version of document (by default 300 sec).
+Scenario: 
+    1) P1 start his process over DB at time T1 (P1 collect all docs with actual time T1, means startTime <= T1, stopTime => T1 or not exist) 
+    2) P2 cahnge doc X at T2 && finished (now doc X has actual version with startTime = T2) 
+    3) P1 reach the X doc. Q: which data should be counted - new (changed by P2) or old (according to the snapshot of P1)? And if it should be old - where it can be found?
+
+WiredTiger History Store = system file in MongoDB. WTHS = file that store OLD version of documents to work acording to the P1 snapshot.
+For P1 executed search as following:
+    1) cache
+    2) Data files (files on disk) 
+    3) WTHS
+If data not found in 3 - returned error.
+WTHS was created to not store all the changed docs in cache. 
+
+
+// ************************ __ BLOCKING __ **************************
+Actually, there are 2 levels of blocking:
+    on engine - it depend on tickets (128 by default) existance. Protect phisycal server system - CPU, RAM, I/O
+    on lock - depend on operations that currently executedinside. Protect logic component of DB - data structure 
+
+There are 2 types of tickets:   
+    - read (128 by default)
+    - write (128 by default)
+
+levels of locking
+    - Global (all server node)
+    - Database (specific database)
+    - Collection (specific collection)
+    - Document (single document)
+
+types of locking:
+    - s     = shared (for read - can be some readers in parallel)
+    - x     = exclusive (for write - nobody can't read/write except the single holder)
+    - is    = intent shared (intend to read inside)
+    - ix    = intent exclusive (intend to write inside)
+    - null  = used for some internal operations
+
+The locks on high levels needs to let know to Mongo if some heavy operations like working with whole tables could be used or should wait.
+Each operation set on each level before specific type of i-lock and on level where the operation will be done - specific x lock.
+
+
+// ************************ __ YIELDING __ **************************
+Once request has a long query it can yield (give a way) it to another request. To do so first request need to stop, free ticket and then got it back and continue from the same place it stopped.
+
+When to check if R1 need to pause & yield:
+    - by num of scanned docs
+    - by time
+    - in case need to bring data from the disk
+
+Flow:
+    1) scanning docs
+    2) start yielding conditions check
+    3) unlock - save cursor position & release all the locks and ticket
+    4) pause
+    5) relocking - try to get ticket and locks
+    6) check the status of docs 
+    7) go to (1)
+
+Issue: 
+    Can lead to Phantom read problem.
+
+// ************************ __ CONNECTION POOL __ **************************
+maxPoolSize         = max number of connections driver can open to one node. By default 100. If comes 101, it will go to queue to wait.
+minPoolSize         = number of connections driver will hold opened. By default 0. 
+maxIdleTimeMS       = TTL in milisec of idle connection. By default 0 (not limited)
+waitQueueTimeoutMS  = time in milisec that request can spend in queue waiting for free connection 
+maxConnecting       = limit parallel opened connection (due to cryptographic overhead on CPU)
+
+Except the maxPoolSize connection you need 1-2* connection for monitoring:
+    - SDAM (Server Discovery and Monitoring). Each 10 sec send command to check the node response.
+    - RTT (Round Trip Time). Check latency for each node.
+
+*In new drivers SDAM and RTT could be in a single connection.
+This service connections NOT counted inside maxPoolSize!
+
+Count connections:
+    worst case scenario - all connected to all
+        TOTAL = APPLICATIONS_INSTANCES * SERVER_NODES * (MAX_POOL_SIZE + 2)
+
+    Primary loading:
+        TOTAL = (APPLICATIONS_INSTANCES * MAX_POOL_SIZE) + (APPLICATIONS_INSTANCES * SERVER_NODES * 2)
+ 
+Count pool size:
+    maxPoolSize = (number_of_CPU × 2) + num_of_disks
+
+Relationship:
+    maxPoolSize × APPLICATIONS_INSTANCES = MONGOD_connections 
+
+// ************************ __ HOW IT WORKS CHAIN __ **************************
+1) Application thread need data
+2) (1) ask connection from Connection pool using its params
+3) request go to server
+4) request need to get WT ticket
+5) request need to set Lock
+6) request get data from cache --> data files --> WTHS file
+
+
+// ************************ __ COMPRESSION __ **************************
+DATA:
+    Documents compressed once writing on the disk (checkpoint)
+
+    Compression types:
+        - Snappy    = default type, balance between speed and efficiency
+        - Zstd      = efficiency higher, but need more resources to do it
+        - Zlib      = the most efficient, but very slow. Zstd is better
+        - None      = rare/specific case. 
+
+    None is OK in if:
+        - you have no CPU resources at all and has very fast storage
+        - data already compressed (gzip/zip/JPEG/MP4)
+        - data is encrypted (compressing will not give a lot space if any)
+        - data has specific binary format (dumps)
+        - you have High-Frequency system (trading, real-time analysis)
+
+INDEXES:
+    Used prefix compression: if there is a lot of keys with the same start part so it will be splitted onto 2 parts: prefix + base. Prefix will be save d separatly.
+
+JOURNAL:
+    Usually used "Snappy" as write operation in journal should be as fast as possible.
+      
+// ************************ __ READ ONLY __ **************************
+This is mode where Mongo DB start with --readOnly. It's used for backups, CD-ROMs or in containers where no write allowed.
+WT do not provide write tickets (no queues). WT cache is static. Latency is more predictable.
+
+
+// ************************ __ IN_MEMORY __ **************************
+This is mode where no disks used. All data located in memory. No checkpoints, journaling.
+Connection much more faster. Need to configure minPoolSize (enlarge it) to warm up the connection pool - we need to have some prepared(opened) connection as time of request execution much less then usuall. Tickets almost always available. Usually no compression.  

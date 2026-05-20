@@ -1,5 +1,5 @@
 //********************** __ BASIC __ *******************
-MongoDB is open for anyone who can access 27017 by default.
+MongoDB is open for anyone who can access port 27017 by default.
 Checks are:
     Authentication  = login + password
     Authorization   = what can you do
@@ -13,6 +13,11 @@ Start options:
 
 If you have no new users in DB, you will be able to connect to MongoDB WITHOUT authorization/authentication.
 Once user will be created - you have to do auth for all others users.
+
+Users created in "admin" db can manage the whole server, works with replica sets/sharded dbs and work with any data.
+Users created in any other db counted as local users and can login only if they provide the db where they were created as db to connect. They restricted to work with this db and data inside it only.
+
+RBAC = role based access control
 
 //********************** __ FIRST SU CREATION __ *******************
 1) Connection:
@@ -39,8 +44,11 @@ Once user will be created - you have to do auth for all others users.
 
 
 //********************** __ ROLES __ *******************
-ROLE = collection of privilegies.
-privilegy = what you can do AND over which resources you can do it
+
+Privilegy       = what you can do AND over which resources you can do it.
+Role            = collection of privilegies.
+Users           = can have some roles to execute what is needed.
+
 
 LVL = single DB
     read  
@@ -62,7 +70,7 @@ LVL = single DB
 
 LVL = all DBs in cluster
     readAnyDatabase         = read
-    readWriteAnyDatabase    = readWrite
+    readWriteAnyDatabase    = readWrite (except systems like "local" and "config")
     dbAdminAnyDatabase      = dbAdmin
     userAdminAnyDatabase    = userAdmin
     
