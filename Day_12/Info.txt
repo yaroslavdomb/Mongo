@@ -52,8 +52,23 @@
                 required: ["city", "zip"],                                              // internal mandatory fields
                 properties: {
                     city: { bsonType: "string" },
-                    country: { bsonType: "string" },
+                    country: { bsonType: "string" },                                    // optional as not presented in required list
                     zip: { bsonType: "string" }
+                }
+            }, 
+            cars: {
+                bsonType: "array",                                                      // cars it's an array
+                items: {                                                                // describe each item inside the array
+                    bsonType: "object",
+                    properties: {                                                       // list of fields that we going to validate
+                        model: {
+                            bsonType: "string"
+                        },
+                        year: {
+                            bsonType: "date"
+                        }
+                    },
+                    additionalProperties : true                                         // default, allow existance of other fields in that item
                 }
             }
         }
@@ -65,9 +80,10 @@
 
 
 //****************************** __ Validation levels __ **************************
+
 Define to which docs validation will be applyed:
-    - strict    = any insert/update operations, existed docs on update that not alligned with validation schema will throw an error
-    - moderate  = any insert/update operations, existed docs on update that not alligned with validation schema will be updated successfully
+    - strict    = default, any insert/update operations, existed docs on update that not alligned with validation schema will throw an error: for update operation Mongo check document AFTER update operation, so if before the schema applying you have a dirty document, after update it will be checked totally (including not changed fields) and can throw an error cause of other (not changed fields).
+    - moderate  = any insert/update operations, existed docs on update that not alligned with validation schema will be updated successfully, insert executed always with strict mode. The unvalidated doc will stay unvalidated (and with garbage) untill you fix it.
     - off       = no validation
 
 Example:
@@ -76,32 +92,66 @@ Example:
         validationLevel: "strict"
     })
 
+How to detect docs that are not valid according to the specific rules:
+
+    db.users.find({                                     // collection "users"
+        $nor: [{                                        // NOT OR converted into NOT as we have only one condition inside []
+            $jsonSchema: {                              // description of validation schema that we should hold
+                bsonType: "object",
+                required: ["email"],                    // mandatory fields
+                properties: {
+                    email: { bsonType: "string" }       // single mandatory field description
+                }
+            }
+        }]
+    })
+
 //****************************** __ Validation Action __ **************************
 What to do once detected doc that not aligned with validation schema.
     - error     = throw an error
     - warn      = operation will be executed but you'll get a record in logs in mongod.log
 
-Error structure:
-{
-    "writeErrors": [{
-        "index": 0,
-        "code": 121,                                // Document Validation Failure
-        "errmsg": "Document failed validation",
-        "errInfo": {
-            "failingDocumentId": ObjectId("..."),
-            "details": {
-                "operatorName": "$jsonSchema",
-                "schemaRulesNotSatisfied": [...]
+Command for setting:
+    db.runCommand({ collMod: "users", validationAction: "warn" })
+
+Error structure for bulk (insertMany/updateMany, bulkWrite) operation:
+    {
+        "writeErrors": [{
+            "index": 0,                                 // index of problematic doc in array 
+            "code": 121,                                // Document Validation Failure, code will be always 121
+            "errmsg": "Document failed validation",
+            "errInfo": {
+                "failingDocumentId": ObjectId("..."),
+                "details": {                            // start from Mongo 4 - etails description of the error
+                    "operatorName": "$jsonSchema",
+                    "schemaRulesNotSatisfied": [...]
+                }
+            }
+        }]
+    }
+
+Error structure for single doc operation:
+    Command:
+        db.users.insertOne({ name: "Иван", age: "не число" })
+
+    Response:
+        {
+            failingDocumentId: ObjectId("..."),
+            details: {
+                operatorName: "$jsonSchema",
+                schemaRulesNotSatisfied: [
+                    {
+                        operatorName: "properties",
+                        propertiesNotSatisfied: [{
+                            propertyName: "age",
+                            description: "type did not match",
+                            consideredType: "string",
+                            expectedType: "int"
+                        }]
+                    }
+                ]
             }
         }
-    }]
-}
-
-Set command:
-    db.runCommand({
-        collMod: "users",
-        validationAction: "warn"
-    })
 
 //****************************** __ Complex Validation __ **************************
 Example-1:
@@ -123,7 +173,7 @@ Example-1:
 Example-2:
 {
     $jsonSchema: {
-        anyOf: [                        //one of below is required
+        anyOf: [                                // one of below is required
             { required: ["email"] },
             { required: ["phone"] }
         ]
@@ -134,9 +184,9 @@ Example-3:
 {
     $jsonSchema: {
         bsonType: "object",
-        additionalProperties: false,            // only presented below fields are allowed
+        additionalProperties: false,            // could be problematic - only presented below fields are allowed
         properties: {
-            _id:{bsonType: "object"},
+            _id: { bsonType: "object" },
             name: { bsonType: "string" },
             email: { bsonType: "string" }
         }

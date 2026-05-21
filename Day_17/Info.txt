@@ -56,7 +56,7 @@ $GROUP:
 
     Schema:
         { $group: {
-            _id: "<field name by which we arte grouping>",
+            _id: "<field names by which we arte grouping>",
             <new field name>: { <aggregation operator>: "<how exactly to group>" } 
         }}
 
@@ -75,9 +75,10 @@ $GROUP:
 
     Example-2:
         { $group: { 
-            _id: { 
+            _id: {                              // grouping by 2 fields: 
                 city: "$city",                  // groupped by "city"
-                category: "$category" },        // groupped by "category"
+                category: "$category"           // groupped by "category"
+            },
             total: { $sum: "$price" } 
             } 
         }
@@ -96,6 +97,17 @@ $GROUP:
                 $sum: "$price" } 
             } 
         }
+
+    Example-4:
+        db.sales.aggregate([
+            {
+                $group: {
+                    _id: null,                              // works like some aggregation function - all the docs from collection will return single response
+                    totalRevenue: { $sum: "$price" },
+                    totalCount: { $count: {} }
+                }
+            }
+        ])
 
 $SUM:
     Example:

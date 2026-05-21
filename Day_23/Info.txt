@@ -19,7 +19,7 @@ Once node crashs, all data from 2 and 3 will disappear. All data from 4 could be
 // **************************** __ WRITE CONCERN __ ****************************
 { writeConcern: { w: 0 } } = for bulk logs only (Strategy fire-and-forget)
 { writeConcern: { w: 1 } } = default, Primary confirmed, could lost data
-{ writeConcern: { w: 2 } } = P + 1S cionfirmed
+{ writeConcern: { w: 2 } } = P + 1S confirmed
 { writeConcern: { w: "majority" } } = prod standard
 
 j: true = option to get confirmation that change was registered on disk journal. It don't wait commitIntervalMs.
@@ -37,7 +37,7 @@ linearizable    = check the primary node is still primary && only then read data
 readPreference:nearest      = send request ot the node with minimal latency, regardless to P/S it is.
 
 
-// **************************** __ ADDITIONAL EQUEST PARAMS __ ****************************
+// **************************** __ ADDITIONAL REQUEST PARAMS __ ****************************
 COMMENT:
     Add comment to any request. This comment could be shown in:
         - db.currentOp() (operations that are executing right now), 

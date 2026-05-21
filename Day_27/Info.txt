@@ -1,0 +1,122 @@
+// ******************************** __ LOOKUP TYPES __ *****************************
+Untill Mongo-3.6 there was only 1 type of lookup.
+
+
+// ******************************** __ BASIC LOOKUP __ *****************************
+    - use localField and foreignField
+    - compare only with strong equality (A = B)
+    - no filtering over second collection
+    - for using index we need to have it on field "foreignField"
+
+Schema:
+    {
+        $lookup: {
+            from: "orders",           // second(right) collection
+            localField: "_id",        // field from left collection that should be equal to some field from right collection
+            foreignField: "user_id",  // field from right collection
+            as: "user_orders"         // field that will be returned as result array inside the document from left collection
+        }
+    }
+
+// ******************************** __ ADVANCED LOOKUP __ *****************************
+    - use pipline
+    - allow to do everythiung in the second(right) collection
+    - relationship between collections can be any
+    - for using index we need:
+        - first stage inside pipline is $match
+        - index will be used for $eq, $gt, $gte, $lt or $lte operators inside $match
+        - inside $eq first field should be from collection B
+
+Grammar rule:
+    1 $ = when you deal with variable from joined collection
+    2 $ = when you deal with variable from original collection
+
+Schema:
+    {
+        $lookup: {
+            from: "collectionB",                                            // second collection we need to get full data
+            let: { var1: "$fieldA" },                                       // fields from the first collection we need to get access to
+            pipeline: [                                                     // pipline in collectionB
+                { $match: { $expr: { $eq: [ "$fieldB", "$$var1" ] } } },    // filtering, access to the fieldA executeed with $$var1
+                { $project: { _id: 0, name: 1, price: 1 } },                // projection
+                { $limit: 5 },                                              // additional options
+                { $sort: { createdAt: -1 } }                                // additional options
+            ],
+            as: "result"                                                   // new field that will be return for each document from collectionA
+        }
+    }
+
+Example:
+    [
+        {
+            $lookup: {
+            from: "products",
+            let: { order_items: "$items" },
+            pipeline: [
+                { $match: {
+                    $expr: {
+                        $and: [
+                            { $in: [ "$_id", "$$order_items" ] },
+                            { $gte: [ "$price", 100 ] }                         // price >= 100
+                        ]
+                    }}
+                },
+                { $project: { name: 1, price: 1, category: 1 } }
+            ],
+            as: "expensive_items"
+            }
+        }
+    ]
+
+// ******************************** __ (UN)CORRELATED SUBQUERRIES __ *****************************
+correlation - it's a dependency between fields of current document from collection A and fields of docs in collection B.
+If the request is uncorrelated, the same data will be found for  all the docs of collection A.
+    1) Mongo execute internal pipline over collection B
+    2) save results of (1) in internal cache
+    3) For each doc from collection A it will take (2)
+
+To make request uncorrelated:   
+    - DO NOT use let. Even if you do not use variables inside the pipline the request will not be counted as uncorrelated.
+    - DO NOT use $$ 
+
+
+// ******************************** __ CONCISE SYNTAX __ *****************************
+Another name = Compact $lookup. Allow you not to use let and expr.
+You still limited by strong equality between the fields only.
+
+Before:
+    {
+        $lookup: {
+            from: "orders",
+            let: { order_id: "$target_id" }, 
+            pipeline: [
+                { $match: { $expr: { $eq: ["$id", "$$order_id"] } } }
+            ],
+            as: "result"
+        }
+    }
+
+After:
+    {
+        $lookup: {
+            from: "orders",
+            localField: "target_id",
+            foreignField: "id",
+            pipeline: [
+                { $match: { status: "active" } },   // advanced lookup features
+                { $limit: 1 }                       // advanced lookup features
+            ],
+            as: "result"
+        }
+    }
+
+// ******************************** __ ATLAS TRIGGERS && FUNCTIONS __ *****************************
+Trigger define when to do
+Function define what to do
+
+Once trigger activated the changeEvent object send to appropriate function.
+
+1. Database Triggers        = Executed when collection changed
+2. Scheduled Triggers       = Same as Cron tasks
+3. Authentication Triggers  = Executed when occurs something related to user
+

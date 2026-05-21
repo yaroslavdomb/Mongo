@@ -1,0 +1,193 @@
+Can have up to 
+    64 indexes per collection
+    32 fields in compound key
+    2Kb index key
+
+//************************** __ BASE INDEX __ ****************************
+
+Used B-tree for search. Almost no matter if it's ordered ASC or DESC (reverse scan). Allow indexing by internal fields (db.users.createIndex({ "metadata.login.date": 1 })). Allow indexing by field that is an Object. Used for requests that used the indexed field. Actually reverse scan a bit slower then forward:
+    - Read-Ahead works when we have forward read, but could not work for  reverse ordered
+    - page structure and pointers
+    - cache mechanism works very well for forward search but not for reverse
+    - in high-loaded systems some threads could run one by one and use the same pages in cache. For reverse ordering it can lead to the concurrency
+
+
+//************************** __ COMPLEX INDEX __ ****************************
+
+Use number of fields for indexing. ORDER of the fields is MATTER. Use LEFT PREFIX. Use ESR rule (Equality, Sort, Range). Reverse sort means reverse by each one of the fields that was used in indexing. Do NOT allow using more that one array field as part of index key (once create index it will create index record per each doc * array element). For object-fields: usually no need to use all the object fields in indexing.Once you used dot notation to reach the field inside the object, you do not depend on fields order inside object.
+
+Example:
+    {
+        "name": "Alex",
+        "contacts": [ 
+            { "type": "work", "email": "alex@work.com" },
+            { "type": "home", "email": "alex@home.com" }
+        ],
+        "tags": ["developer", "mongodb-fan"]
+    }
+
+Indexes:
+    { "name": 1, "contacts.email": 1 }          = OK (name = single field, contacts.email = single array)
+    { "contacts.email": 1, "contacts.type": 1 } = OK (both fields will be array, BUT it's fields inside THE SAME array - it's not counted by Mongo)
+    { "contacts.email": 1, "tags": 1 }          = NOT OK (both are array but they are not the fields of the same array)
+
+
+//************************** __ PARTIAL INDEX __ ****************************
+
+Allow to filter witch documents will be in index, so it's faster and can save disk space. Operators could be used in partialFilterExpression object:
+    - $exists
+    - $gt, $gte, $lt, $lte
+    - $type
+    - $and (but can't use $or due to complexity and predictability for this operation)
+
+Example:    
+    db.collection.createIndex(
+        { field1: 1 },
+        { partialFilterExpression: { field2: { $gt: 50 } } }
+    )
+        
+
+//************************** __ MULTIKEY INDEX __ ****************************
+
+- Never is covered request (request that satisfied by indexing and do not touch doc on disk itself). It's because indexing once creating his records and split array into elements, do not say was the field created from single field or it was created as part of array. So to check the doc structure it will visit doc on disk. 
+
+- Sorting: for simple index doc that is first in ASC expected to be last in DESC. In MULTIKEY it's not so obvious. In multikey it's depend on max and minimal elements of array used in indexing. 
+
+- can't be uased as shared key
+
+- if the inex is "unique", you can't have 2 docs with the same array element. Also you can't hold duplication of elements in array.
+
+
+//************************** __ SPARSE INDEX __ ****************************
+
+Include doc into index if the doc has the indexing field. Sub-type of Partial index.
+Issues:
+    In case of sort but without filtering by the same field, Mongo can use full scan. You have to use { field: { $exists: true } } to use index.
+Recommendation: 
+    always use Partial and not Sparse
+Common using case:
+    field is unique. Using sparse indexing it will allow to value to be empty OR will keep uniqueness if it exists.
+
+In compound index doc will not be indexed only if ALL the fields are missed. If at least one of the fields present - it will be in index. 
+
+
+//************************** __ TTL INDEX __ ****************************
+
+Delete docs by time
+
+1) Can't be compound. 
+2) Could work only on field of type Date or array of Dates. If any other type will be detected, the document will not be indexed and never will be deleted.
+3) Deletion will be executed as background process (so it could be not exactly time you set - it depend on CPU usage)
+4) TTL monitoring works on Primary only and then (via opLog) moved to the secondary.
+5) TTL index can't be created on field that already is part of another index.
+6) In capped collections TTL indexes could not be created.
+7) TTL can be used with Partial
+8) if you set 0 in expireAfterSeconds, the document will be deleted in exactly time mentioned in indexed field
+
+Example:
+        db.collection.createIndex(
+            { "createdAt": 1 },
+            { expireAfterSeconds: 3600 }                            // Delete after X seconds
+        )
+
+        db.runCommand({
+            collMod: "myCollection",                                // collection name
+            index: {
+                keyPattern: { createdAt: 1 },                       // field wich been used for creating TTL index
+                expireAfterSeconds: 7200                            // New deletion time in seconds
+            }
+        })
+
+        db.collection.createIndex(
+            { lastModified: 1 },                                    // field of indexing && order
+            { 
+                expireAfterSeconds: 3600,                           // TTL
+                partialFilterExpression: { status: "processed" }    // Partitial
+            }
+        )
+
+//************************** __ TEXT INDEX __ ****************************
+
+1) can be only one per collection
+2) can exclude meaningless words 
+3) can use steamming/weights/tokens
+4) results are not sorted
+5) most heavy requests
+6) support ~15 languages, default - english
+7) case-INsensitive 
+8) almost not useable (used MongoDB Atlas Search) due to a lot of heavy points
+
+
+Examples:
+    Creation:
+        db.collection.createIndex(
+            {
+                title: "text",
+                content: "text"
+            },
+            {
+                weights: { title: 10, content: 2 },
+                name: "MyTextIndex",
+                default_language: "english"
+            }
+        )
+
+    Using:
+        db.collection.find({ 
+            $text: { $search: "programming Mongo" } 
+        })
+
+    Sorting by relevance:
+        db.collection.find(
+            { $text: { $search: "search words here" } },
+            { score: { $meta: "textScore" } }
+        ).sort({ score: { $meta: "textScore" } })
+
+
+//************************** __ GEOSPATIAL INDEX __ ****************************
+
+1) could be part of compound key
+2) could be sharded key with limitations
+3) has validation of coordinates once field indexed
+4) doc can have some geo-fields but each request can use only one geo-index
+
+2 types:
+    - 2dsphere  = for geo surface (distances, angles) use standard GeoJSON
+    - 2d        = for 2d surface (planning floors, maps in games). 
+
+Format:
+    1 = longitude
+    2 = latitude
+
+Examples:
+    Creation:
+        db.places.createIndex({ location: "2dsphere" })
+        db.places.createIndex({ pos: "2d" })
+
+    Search AND sort:
+        db.places.find({
+            location: {                                                             // search field 
+                $near: { 
+                    $geometry: { type: "Point", coordinates: [167.01, 26.37] },     // center of search
+                    $maxDistance: 5000                                              // radius of search in metrs  
+                }
+            }
+        })
+
+    Search ONLY:
+        db.places.find({
+            location: {
+                $geoWithin: {
+                    $centerSphere: [[167.01, 26.37], 5 / 6378.1]                    // Center point and radius of search (5 km / Earth radius in km)
+                }
+            }
+        })
+
+//************************** __ HASHED INDEX __ ****************************
+
+Used to split overload between shards. 
+0) Hash the key and do not use the key itself.
+1) Can not be used for Sorting
+2) can not be used for range requests
+3) can't be used on field that is array
+4) can be part of compound key, but only one can be hashed.

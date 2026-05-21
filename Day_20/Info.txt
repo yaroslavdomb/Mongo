@@ -191,3 +191,53 @@ db.getRole("readWrite", { showPrivileges: true })       = see all the actions yo
         pwd: passwordPrompt(),
         roles: [{ role: "shopManager", db: "shopDB" }]
     })
+
+//********************** __ REDACT __ *******************
+$redact = aggregtion stage that parse document in recursive way and checks levels of access per field. Expect 3 responses:
+    $$DESCEND   = current level is valid, but need to check deeper
+    $$PRUNE     = current level and all deeper should not be checked and removed from the response
+    $$KEEP      = current level and all deeper accepted as validated and kept in response
+
+Difference between redact nd project is for project you need to know exactly field name. For redact you can do  basically on some internal logic.
+
+Example:
+    Doc structure in collection:
+        {
+            _id: 1,
+            name: "Alex Born",
+            clearance: "PUBLIC",                        // anyone can read
+            contacts: {
+                phone: "+79991112233",
+                clearance: "INTERNAL",                  // access for internal use only 
+                bank_details: {
+                    account: "40817810...",
+                    clearance: "MANAGEMENT"             // access for management only
+                }
+            }
+        }
+
+    Request:
+        db.users.aggregate([
+            {
+                $redact: {
+                    $cond: {
+                        if: { $in: [ "$clearance", ["PUBLIC", "INTERNAL"] ] },
+                        then: "$$DESCEND",              // continue to check deeper
+                        else: "$$PRUNE"                 // delete from response MANAGEMENT sections
+                    }
+                }
+            }
+        ])
+    
+    Response:
+        {
+            _id: 1,
+            name: "Alex Born",
+            clearance: "PUBLIC",
+            contacts: {
+                phone: "+79991112233",
+                clearance: "INTERNAL",
+            }
+        }
+
+        section bank_details and all inside totally removed from doc in response
