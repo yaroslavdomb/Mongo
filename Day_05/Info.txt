@@ -69,10 +69,10 @@ Example-2:
 
 $ operator
     Used:
-        update data in first element of array matches to search condition
+        update data in first element(always the first, even found more than 1) of array matches to search condition
 
-    How it works for single change:
-        in search section Mongo look for an element with specific criteria and remeber the index of found element. In update section Mongo substitude operator $ by remembered index
+    How it works:
+        in search section Mongo look for an element with specific criteria and remeber the index of found element. In update section Mongo substitude operator $ by remembered index. For multi change situation $[<name>] is a placeholder, and <name> could be any meaningfull value. Main condition - the same name should be used in arrayFilters line. If you do not provide the name (means $[] stay empty) it will update all the elements in the array, without any condition. Line of arrayFilters provide a conditions to detect elements to update. To allow working with array elements we need to do a search inside the array in querry (even we know to filter the exactly doc, but inside the doc in array we need to search for an eelment to get it possition).
 
     Example - single change:
         db.collection.updateOne(
@@ -81,23 +81,95 @@ $ operator
         )
 
     Example - multiply change:
-        db.students.updateOne(
-            { _id: 1 },                                     // select doc to update
-            { $set: { "grades.$[element]": 50 } },          // set new value(50) for all selected elements inside array ("grades")
-            { arrayFilters: [ { "element": 45 } ] }         // which elements will be selected for update (that has value=45)
-        )
+        Document:
+            { _id: 1, 
+            scores: [ 
+                { val: 40 }, 
+                { val: 55 }, 
+                { val: 90 } 
+            ] }
 
-    Example - multiply change:
+        Command:
+            db.col.updateOne(
+                { _id: 1 },                                                     // filter section
+                { $set: { "scores.$[currentElement].failed": true } },          // how exactly we should update  
+                { arrayFilters: [ { "currentElement.val": { $lt: 60 } } ] }     // what exactly we should update 
+            )
+
+        Returned:
+            { _id: 1, 
+            scores: [ 
+                { val: 40, failed: true }, 
+                { val: 55, failed: true }, 
+                { val: 90 } 
+            ] }
+
+
+    Example - total change:
         db.students.updateOne(
             { _id: 1 },                                     // select doc to update
             { $inc: { "grades.$[]": 10 } }                  // for any element of array "grades" add 10 points
         )
 
+    Example - update:
+        Document:
+            { _id: 1, 
+            scores: [ 
+                { id: "a", val: 50 }, 
+                { id: "b", val: 80 } 
+            ] }
+
+        Command:
+            db.col.updateOne(
+                { "scores.id": "b" },                   // filter sections, search only the element that has scores[i].id = b
+                { $set: { "scores.$.val": 99 } }        // update section, set into the found element scores[i].val = 99
+            )
+
+        Result:
+             { _id: 1, 
+                scores: [ 
+                    { id: "a", val: 50 }, 
+                    { id: "b", val: 99 } 
+            ] } 
+
+    Example - find:
+        Document:
+            { _id: 1, 
+            scores: [ 
+                { id: "a", val: 50 }, 
+                { id: "b", val: 80 } 
+            ] }
+
+        Command:
+            db.col.find(
+                { "scores.val": { $gte: 70 } },     // filter stage, first element with score.value >= 70 should be detected 
+                { "scores.$": 1 }                   // projection stage (which fields to return), as this is find command
+            )
+
+        Result:
+             { _id: 1,                              // returned as by default it's 1
+                scores: [ 
+                    { id: "b", val: 80 }            // returned as we asked for the item having score.value >= 70 
+            ] } 
+
+    Example:
+        Command:
+            db.col.updateOne(
+                { _id: 10, "scores.id": "b" },          // what to update stage - we know the document, but search inside the array
+                { $set: { "scores.$.val": 12 } }        // how to update stage - we can use $ as placeholder for substitution 
+            )
+
+        Result:
+             { _id: 10, 
+                scores: [ 
+                    { id: "a", val: 50 },               
+                    { id: "b", val: 12 } 
+            ] } 
 
 ATTENTION
     1) You can't do 2 or more operations on the same field in same request (for example, set & inc) = error "Conflicting update operators"
     2) You can't do operation on parent object and any operation on it's children
-    3) Use pull instead of unset while working with arrays
+    3) Use $pull instead of $unset while working with arrays
     4) Mongo can modify the doc in other order than the fields appear in the request, but operation still remains atomic = all will be updated OR nothing will be updated 
     5) Inside $set you can't use the other fields of the document, it's expect the defined values
 

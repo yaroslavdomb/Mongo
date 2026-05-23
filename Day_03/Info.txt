@@ -119,3 +119,18 @@ Example:
         writeConcern: { w: 0 }          // Do not wait for any confirmation
     });             
     
+Returned:   
+    {
+        "acknowledged": true,
+        "insertedCount": 1,                     // new docs
+        "insertedIds": {                        // list of ids of new docs
+            "0": "65f1a2b3c4d5e6f7a8b9c001"
+        },
+        "matchedCount": 2,                      // number of docs aligned with conditions for update
+        "modifiedCount": 1,                     // number of docs that really were changed - could be less then matchedCount if data is the same
+        "upsertedCount": 1,                     // number of docs were created due to upsert setting
+        "upsertedIds": {                        // list of created due to upsert setting
+            "2": "65f1a2b3c4d5e6f7a8b9c002"
+        },
+        "deletedCount": 1                       // number of deleted docs
+    }

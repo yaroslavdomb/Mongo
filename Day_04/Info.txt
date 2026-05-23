@@ -1,7 +1,7 @@
 //***************** __ FIND __ ********************
 Return: null (if not found) OR cursor (due to this you can use cursor with dot out of the find object)
 Schema:
-    db.collection.find(query, projection).cursor
+    db.collection.find(query, projection).<cursor methods>
 
 Example:
     db.products.find(

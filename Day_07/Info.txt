@@ -7,7 +7,7 @@
         Adding one element to the end of array:
             db.users.updateOne({ _id: 1 }, { $push: { scores: 85 } })
         
-        Adding 3 elements to the end of array "tags":
+        Adding 3 new elements to the end of array "tags":
             db.users.updateOne({_id:2}, { $push: { tags: { $each: ["red", "blue", "green"] } } })
 
         Adding 1 element("News1") into specified position (0 = at the beginning) of the array "news":
@@ -16,8 +16,11 @@
         Adding 4 elements BEFORE pre-last position  (2 positions from the end) of "coordinates" array
             db.users.updateOne({ _id: 2 }, { $push: { coordinates: { $each: [10, -2, 3.5, +0.4], $position: -2 }}})
 
+        Adding elements, then sort them in ASC order, and take first 5 elements
+            db.users.updateOne({ _id: 2 }, { $push: { coordinates: { $each: [10, -2, 3.5, +0.4], $position: -2, $sort: 1, $slice: 5 }}})
+
 2) addToSet
-    Add elements only if yet not exists. Elements could be added only at the end of array.
+    Add elements only if yet not exists. Elements could be added only at the end of array. Don't know to work with $sort & $slice inside like $push do.
     Example:
         Add one value:
             db.users.updateOne({ _id: 1 }, { $addToSet: { tags: "admin" } })
@@ -60,12 +63,12 @@
         db.users.find({ skills: { $all: ["python", "mongodb"] } })    // search for user that has in "skills" array all elements from [] 
 
 7) size
-    Only exact number, do NOT work with gt/lt
+    Only exact number, do NOT work with gt(e)/lt(e)
     Example:
         db.users.find({ tags: { $size: 2 } })                                           // search userxs that has exactly 2 tags
 
 8) pullAll
-    Instead of pull that works with condition, pullAll takes list of exact values
+    Instead of pull (that works with condition), pullAll takes list of exact values
     Example:
         db.posts.updateOne({ _id: 1 },{ $pullAll: { tags: ["draft", "archive"] } })     // remove docs with tags "draft" OR "archive"
 
@@ -98,3 +101,11 @@
         Merge new element into array of existed values("exams") and then sort the array by specific field (complex object) 
         For complex object you need to mention by which field the sorting should be done
             db.users.updateOne({ _id: 1 }, { $push: { exams: { $each: [{ id: 2, score: 50 }], $sort: { score: -1 }}}})
+
+11) $each
+    It works like $unwind, working with each element inside the array. So any action with "$each" will be executed for each element on its array. While using with "addToSet" each element also pass the filter to avoid duplication. Inside $push you can use additional 3 operators
+        - sort (always BEFORE slice)
+        - slice (always AFTER sort)
+        - position 
+
+    

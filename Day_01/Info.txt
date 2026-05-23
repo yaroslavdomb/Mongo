@@ -1,21 +1,21 @@
 JSON 
-    (JavaScript Object Notation) = text format, Human-readable.
-    Has less formats of data: string, number, boolean, null, array, object.
-    Serialization faster as doc format more easy
-    Deserialization slower as we need string parsing
-    Search by fields very slow
-    Doc size is less - no metadata in doc saved
-    Used in REST API, config
+    - (JavaScript Object Notation) = text format, Human-readable.
+    - Has less formats of data: string, number, boolean, null, array, object.
+    - Serialization faster as doc format more easy
+    - Deserialization slower as we need string parsing
+    - Search by fields very slow
+    - Doc size is less - no metadata in doc saved
+    - Used in REST API, config
 
 
 BSON (Binary JSON)  = binary JSON
-    Has more formats of data: JSON formats + Date, double, int32, int64, Binary, Regex, Timestamp
-    Documen structure:
+    - Has more formats of data: JSON formats + Date, double, int32, int64, Binary, Regex, Timestamp
+    - Documen structure:
         [4 bytes: doc size]
         [1 byte: type] [key\0] [value]
         [1 byte: type] [key\0] [value]
         [0x00: EOF]
-    Used in Mongo to save data
+    - Used in Mongo to save data
 
 General structure of Mongo DB:
     Database    = SQL DB
