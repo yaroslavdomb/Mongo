@@ -2,13 +2,13 @@
 Aggregation = searching docs in DB but return them with some kinds of transformation (otherwise no need aggregation, you just use simple find())
 
 There are couple groups of commands in aggregation:
-    1) Filtering & 
+    1) Filtering & updating
     2) Grouping & accumulators
     3) Outputing & special operations
 
 Aggregation is a piplene of the stages
 
-//************************* __ Filtering &  __ ****************************
+//************************* __ FILTERING & UPDATING __ ****************************
 $MATCH:
     works like find - return docs that are align with search conditions
     Example:
@@ -33,7 +33,7 @@ $SET:
     Example:
         { $set: { totalCost: { $multiply: ["$price", "$qty"] } } }  // all existed fields will be displayed AND ADDITIONAL field - "totalCost" - also.
 
-$SORT $SKIP $LIMIT:
+$SORT / $SKIP / $LIMIT:
     Each stage align with the same actions in Cursor. By ESR rule, sort should come before group actions.
     Example:
         { $sort: { price: -1 } }   // 

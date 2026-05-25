@@ -1,4 +1,6 @@
 //***************** __ updateOne / updateMany __ ********************
+If usert=true and the updated doc not found, it will be created. The fields inside the new doc  will be MERGED from filter and update stage. In case there is a duplication fields, update stage values will have a priority over the filter.
+
 Used for:
     updateOne = Update first document (even found some). First means the first by index. Atomic operation.
                 If changed field exists - it will be updated with new value. If not - it will be created.
@@ -7,6 +9,22 @@ Used for:
 Schema:
     db.collection.updateOne(filter, update, options)
 
+Example-0 (updateOne + upsert):
+    Empty DB, command:
+        db.products.updateOne(
+            { "sku": "A123", "status": "active", "secretField": "invisible" },      // filter
+            { "$set": { "quantity": 10, "status": "discontinued" } },               // update
+            { "upsert": true }                                                      // options
+        );
+    
+    Now DB has:
+        {
+            "_id": ObjectId("..."),         // autocreated
+            "sku": "A123",                  // taken from update section
+            "secretField": "invisible",     // taken from filter section
+            "status": "discontinued",       // update value has priority over filter
+            "quantity": 10
+        }
 
 Example-1 (updateMany):
     db.users.updateMany(
@@ -67,7 +85,9 @@ Example-2:
             "upsertedCount": 1                                      //num of created docs
         }
 
-$ operator
+
+//***************** __ $ operator __ ********************
+
     Used:
         update data in first element(always the first, even found more than 1) of array matches to search condition
 
@@ -175,7 +195,7 @@ ATTENTION
 
 //***************** __ replaceOne __ ********************
 Used for:
-    Totally replace old document with a new one. _id of the doc stay the same!!! 
+    Totally replace old document with a new one. _id of the doc stay the same!!! In case the doc does not exist, but upsert stay as true, the new doc will be created. Put attention: the fields in new created doc will be taken from upsert section only!
 
 Schema:
     db.collection.replaceOne(
@@ -190,6 +210,24 @@ Schema:
     )
 
 Example-1:
+    Empty DB, command
+        db.products.replaceOne(
+            { "sku": "A123", "status": "active", "email":"asd@zxc.com" },       // filtering stage
+            { "sku": "A123", "status": "discontinued", "quantity": 10 },        // upsert stage
+            { "upsert": true }
+        );
+    
+    In DB now:
+        [
+            {
+                "_id": ObjectId("65f1a2b3c4d5e6f7a8b9c0d1"),                    // created automatically
+                "sku": "A123",                                                  // merged from upsert stage
+                "status": "discontinued",                                       // merged from upsert stage
+                "quantity": 10                                                  // merged from upsert stage
+            }
+        ]
+
+Example-2:
     db.backups.replaceOne(
         { "targetId": 50 },                                             // filter
         { "targetId": 50, "data": "new_blob", "updatedAt": "2026" }     // full new object

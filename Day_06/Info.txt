@@ -5,7 +5,7 @@ lt      |   { price: { $lt: 1000 } }
 lte     |   { price: { $lte: 1000 } }
 ne      |   { status: { $ne: "deleted" } }
 in      |   { tag: { $in: ["tech", "science"] } }
-nin     |   { code: { $nin: [404, 500] } } 
+nin     |   { code: { $nin: [404, 500] } }                  // not in array of given values
 and     |   { $and: [ { price: { $gt: 500 } }, { status: "active" } ] }
 or      |   { $or: [ { qty: { $lt: 10 } }, { status: "urgent" } ] }
 not     |   { price: { $not: { $gt: 50 } } }

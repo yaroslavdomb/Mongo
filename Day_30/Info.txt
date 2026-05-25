@@ -1,0 +1,159 @@
+//************************* __ DATABASE PROFILER __ ***************************
+Write slow/any operations in capped collection system.profile (def size = 1 Mb, better to hange it to 50Mb at least). This is the most useable tool to check problemati queries in prod.
+
+
+db.setProfilingLevel(0)                                     // 0 = disabled, default
+db.setProfilingLevel(1, { slowms: 100 })                    // 1 = for slow requests only (requests lasts over 100 milisec)
+db.setProfilingLevel(2)                                     // 2 = all requests
+db.setProfilingLevel(1, { slowms: 50, sampleRate: 0.1 })    // take 10% of slow requests that lasts  over 50 milisec
+db.getProfilingStatus()                                     // get current profile settings, returned { was: 1, slowms: 100, sampleRate: 1 }
+
+Structure of record in system.profile:
+    {
+        op:        "query",                                     // operation type: query/update/insert/remove/command
+        ns:        "mydb.orders",                               // namespace (database.collection)
+        command:   { find: ..., filter: ..., sort: ... },
+        keysExamined:  1500,                                    // number of keys that were examinated during the request 
+        docsExamined:  1500,                                    // number of docs that were examinated during the request 
+        nreturned:     3,                                       // number of docs returned
+        millis:        284,                                     // time of request execution, milisec
+        planSummary:  "COLLSCAN",                               // plan type description (IXSCAN, COLLSCAN...)
+        execStats:    { ... },                                  // full statistics of execution
+        ts:           ISODate(),                                // operation timestamp
+        client:       "127.0.0.1",
+        user:         "appUser",
+        appName:      "myApp"                                   // application name (taken from connection string)
+    }
+
+Examples of using:
+    db.system.profile.find().sort({ millis: -1 }).limit(10).pretty()                                // top-10 most longest in time requests
+    db.system.profile.find({planSummary: "COLLSCAN"}).sort({ millis: -1 })                          // only full scan requests
+    db.system.profile.find({millis: { $gt: 200 }, ts: { $gt: new Date(Date.now() - 3600000) }})     // request > 200 milisec for last hour 
+    db.system.profile.find({$where: "this.docsExamined > this.nreturned * 10"}).sort({ millis: -1 })// requests where you visited x10 docs that were been returned
+
+
+//************************* __ EXPLAIN __ ***************************
+Shows how Mongo will execute the request. Mongo in parallel check all the plans for getting  first 101 docs and check wich one is the faster.
+There is a command that tell to Mongo which plan to use: .hint().
+
+There are 3 levels of explanation:
+    - queryPlanner      = plan, no execution
+    - executionStats    = plan + execution of winner + winner statistics
+    - allPlansExecution = plan + execution of winner + winner statistics + rejected plans evaluations
+
+Commands:
+        db.orders.explain().find({ status: "pending" })
+    OR 
+        db.orders.explain("queryPlanner").find(...)
+
+    db.orders.explain("executionStats").find(...)
+    db.orders.explain("allPlansExecution").find(...)
+
+Output of executionStats:
+    {
+        queryPlanner: {
+            plannerVersion: 1,
+            namespace:     "mydb.orders",
+            indexFilterSet: false,
+            parsedQuery:   { status: { $eq: "pending" } },  // query that was inserted 
+            winningPlan: {
+                stage:         "FETCH",                     // 
+                inputStage: {
+                    stage:       "IXSCAN",                  // type of plan execution
+                    keyPattern:  { status: 1 },
+                    indexName:   "status_1",                // used index with name
+                    isMultiKey:  false,
+                    direction:   "forward"
+                }
+            },
+            rejectedPlans: [...]                            // list of possible but not winning candidates
+        },
+        executionStats: {
+            executionSuccess:  true,
+            nReturned:         42,                          // number of docs returned 
+            executionTimeMillis: 3,                         // exec time
+            totalKeysExamined:  42,                         // 
+            totalDocsExamined:  42,                         // 
+            executionStages:   { ... }                      // stages executed with their statistics
+        }
+    }
+
+hint
+    there are 2 ways to use hint:
+        db.collection.find({ age: { $gt: 20 } }).hint("plan_name_from_explanation")
+        db.collection.find({ age: { $gt: 20 } }).hint({same_structure_of_index})
+    limitations:
+        - if you'll delete index used in hint each request that used hint will crush
+        - there is some issues with hashed and sparsed indexes
+        - greate latency for using hint on index that has no fields from find()
+
+
+//************************* __ EXECUTION PLAN __ ***************************
+Tree of stages executed to finish the request. Starts from down to top. 
+
+Stages and levels of using:
+
+    BEST = cause there is no work with data on disc at all.
+        IXSCAN              = Read indexing, 
+        PROJECTION_COVERED  = IDHACK. Using data from index only(covered query). No need to visit docs on disk
+        COUNT_SCAN          = Count data through index, without docs visiting
+        
+    OK = cause it use disk for several cases only or stop execution very fast.
+        FETCH               = Download docs by IXSCAN to get other fields (not covered by used index)
+        LIMIT               = limit N docs
+        SHARDING_FILTER     = filtering docs from shard. Could be seen in sharded cluster
+
+    MAYBE = you better to use indexes, it will be faster 
+        SKIP                = skip N docs
+        OR                  = Union of some IXSCAN for $or.
+        AND_HASH            = Indexes intersection through hash. Query planner will unit 2 indexes. Better to use compound-index.
+        AND_SORTED          = Index intersection through merge sorted lists. Same as AND_HASH.
+        SORT_MERGE          = Merge-sort of some others range-scans executed on previous stages. It's slower than IXSCAN + FETCH.
+
+    NEVER = 
+        COLLSCAN            = Full collection scan. Well, actually it's not never - it's OK for export, statistics operation, small/capped collections
+        SORT                = In-memory sort. Has limit of 100MB (if not used allowDiskUse).
+        SUBPLAN             = Mongo do not see the best plan, so it try to split the request.
+    
+    NO LEVEL
+        UPDATE / DELETE     = final stages. Level is depend on what we have on previous stages 
+
+
+//************************* __ HOW TO WORK WITH EXPLAIN __ ***************************
+1) Check winningPlan.stage according to EXECUTION PLAN levels.
+2) count ratio as totalDocsExamined / nReturned. If it's about 1 its great. If up to 10 - accepted. If over 10 - need optimization
+3) check if you have SORT in plan tree
+4) check if you query is covered
+5) check rejected plans
+
+
+//************************* __ COMMON ISSUES __ ***************************
+Issue:                      | Reason:                                           | Solution:
+COLLSCAN	                | No index on fields  in filter                     | Create index
+SORT stage in plane	        | No index for sort field 	                        | Add sort-field into compound index using ESR
+keysExamined >> nReturned	| Low selectivity or range without equality prefix	| Change field order in compound key
+FETCH after IXSCAN,         | There is no covered query                         | Add fields of projection into index
+SUBPLAN ($or)	            | Rooted $or — медленный planning	                | Validate that each or branch has its own index
+SKIP (greate number)        | Pagination through .skip()	                    | Change to range-based pagination (by _id or cursor)
+Not effective plan accepted | Error in  query planner                           | Use .hint() and/or planCacheKey
+
+
+// ************************* __ COVERED REQUEST __ ***************************
+
+There are some definition of covered request:
+1) If you have IXSCAN AND there is no in explain your plan stage FETCH - the request is covered.
+2) Request will be covered if 
+    - all the fields in request are covered AND
+    - all the fields in response are covered
+
+Examples:
+    Index       = { name: 1, role: 1 }
+    
+    Request     = db.users.find({ name: "Alex" })
+    Result      = not covered. There is no projection in request, so all the fields will be returned. To do this, Mongo will use FETCH 
+
+    Request     = db.users.find({ name: "Alex" }, { name: 1, role: 1 })
+    Result      = not covered. _id (automatically returned field) not excluded from returned doc --> FETCH.
+
+    Request     = db.users.find({ name: "Alex" }, { name: 1, role: 1, _id: 0 })
+    Result      = covered. _id (automatically returned field) excluded, all other fields are covered.

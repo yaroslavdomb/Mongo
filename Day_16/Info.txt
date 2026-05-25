@@ -398,3 +398,6 @@ MongoDB анонсировала public preview Atlas Search и Vector Search д
 
 
 db.createSearchIndex() 
+
+$split
+    { "$split": [ "$<name_of_splitting_field>", "<dilimiter>" ] }

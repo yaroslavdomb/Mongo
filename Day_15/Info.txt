@@ -1,5 +1,5 @@
 // ***************************** __ MAIN POINTS __  ***********************************
-0) To use transactions there are couple of counditions to be hold:
+0) To use transactions there are couple of conditions to be hold:
     - Mongo run on replica/sharded - transaction mechanism based on opLog file that are not available on single instance.
     - the driver should be WiredTiger and not some customization of it.
     - each transaction should include session (start/close, transferring to the DB)
@@ -43,24 +43,24 @@ In Mongo if you works with:
     1) No retry logic (Core API)
         const session = client.startSession()
         try {
-        session.startTransaction({
-            readConcern:  { level: "snapshot" },
-            writeConcern: { w: "majority" },
-            maxCommitTimeMS: 2000
-        })
+            session.startTransaction({
+                readConcern:  { level: "snapshot" },
+                writeConcern: { w: "majority" },
+                maxCommitTimeMS: 2000
+            })
 
-        await accounts.updateOne(
-            { _id: fromId },
-            { $inc: { balance: -amount } },
-            { session }                             // each operation comes with session
-        )
-        await accounts.updateOne(
-            { _id: toId },
-            { $inc: { balance: amount } },
-            { session }                             // each operation comes with session
-        )
+            await accounts.updateOne(
+                { _id: fromId },
+                { $inc: { balance: -amount } },
+                { session }                             // each operation comes with session
+            )
+            await accounts.updateOne(
+                { _id: toId },
+                { $inc: { balance: amount } },
+                { session }                             // each operation comes with session
+            )
 
-        await session.commitTransaction()           // commit transaction
+            await session.commitTransaction()           // commit transaction
         } catch (err) {
             await session.abortTransaction()        // rollback transaction
             throw err
@@ -150,7 +150,7 @@ Commands:
 
 Example:
     Command = db.collection.updateOne({ _id: 1 }, { $inc: { x: 5 } })
-    oplog recooord:
+    oplog record:
         {
             "lsid": { ... },            // session id
             "txnNumber": Long("..."),   // transactiion number (if exists)
