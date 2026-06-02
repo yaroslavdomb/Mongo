@@ -1,7 +1,6 @@
 //************************* __ DATABASE PROFILER __ ***************************
 Write slow/any operations in capped collection system.profile (def size = 1 Mb, better to hange it to 50Mb at least). This is the most useable tool to check problemati queries in prod.
 
-
 db.setProfilingLevel(0)                                     // 0 = disabled, default
 db.setProfilingLevel(1, { slowms: 100 })                    // 1 = for slow requests only (requests lasts over 100 milisec)
 db.setProfilingLevel(2)                                     // 2 = all requests
@@ -33,13 +32,14 @@ Examples of using:
 
 
 //************************* __ EXPLAIN __ ***************************
+
 Shows how Mongo will execute the request. Mongo in parallel check all the plans for getting  first 101 docs and check wich one is the faster.
 There is a command that tell to Mongo which plan to use: .hint().
 
 There are 3 levels of explanation:
-    - queryPlanner      = plan, no execution
+    - queryPlanner      = plan
     - executionStats    = plan + execution of winner + winner statistics
-    - allPlansExecution = plan + execution of winner + winner statistics + rejected plans evaluations
+    - allPlansExecution = plan + execution of winner + winner statistics + rejected plans evaluations + rejected plans partial execution
 
 Commands:
         db.orders.explain().find({ status: "pending" })
@@ -89,16 +89,19 @@ hint
 
 
 //************************* __ EXECUTION PLAN __ ***************************
+
 Tree of stages executed to finish the request. Starts from down to top. 
 
 Stages and levels of using:
 
-    BEST = cause there is no work with data on disc at all.
-        IXSCAN              = Read indexing, 
-        PROJECTION_COVERED  = IDHACK. Using data from index only(covered query). No need to visit docs on disk
+    BEST = cause there is reading only index data, with zero original documents fetching (neither from cache, nor from disk).
+        
+        PROJECTION_COVERED  = Using data from index only(covered query). No need to visit docs on disk
         COUNT_SCAN          = Count data through index, without docs visiting
+        IDHACK              = Search a singledoc by its _id.
         
     OK = cause it use disk for several cases only or stop execution very fast.
+        IXSCAN              = Read indexing only, but almost always do FETCH
         FETCH               = Download docs by IXSCAN to get other fields (not covered by used index)
         LIMIT               = limit N docs
         SHARDING_FILTER     = filtering docs from shard. Could be seen in sharded cluster
@@ -108,18 +111,19 @@ Stages and levels of using:
         OR                  = Union of some IXSCAN for $or.
         AND_HASH            = Indexes intersection through hash. Query planner will unit 2 indexes. Better to use compound-index.
         AND_SORTED          = Index intersection through merge sorted lists. Same as AND_HASH.
-        SORT_MERGE          = Merge-sort of some others range-scans executed on previous stages. It's slower than IXSCAN + FETCH.
+        SORT_MERGE          = Merge-sort of some others range-scans (or) executed on previous stages. It's slower than IXSCAN + FETCH.
 
     NEVER = 
         COLLSCAN            = Full collection scan. Well, actually it's not never - it's OK for export, statistics operation, small/capped collections
         SORT                = In-memory sort. Has limit of 100MB (if not used allowDiskUse).
-        SUBPLAN             = Mongo do not see the best plan, so it try to split the request.
+        SUBPLAN             = You have or, so Mongo planner try to split the request.
     
     NO LEVEL
         UPDATE / DELETE     = final stages. Level is depend on what we have on previous stages 
 
 
 //************************* __ HOW TO WORK WITH EXPLAIN __ ***************************
+
 1) Check winningPlan.stage according to EXECUTION PLAN levels.
 2) count ratio as totalDocsExamined / nReturned. If it's about 1 its great. If up to 10 - accepted. If over 10 - need optimization
 3) check if you have SORT in plan tree
@@ -128,6 +132,7 @@ Stages and levels of using:
 
 
 //************************* __ COMMON ISSUES __ ***************************
+
 Issue:                      | Reason:                                           | Solution:
 COLLSCAN	                | No index on fields  in filter                     | Create index
 SORT stage in plane	        | No index for sort field 	                        | Add sort-field into compound index using ESR

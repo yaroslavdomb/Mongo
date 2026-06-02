@@ -18,6 +18,7 @@ Label
 
 
 //************************ __ ERROR CALLBACK __ *****************************
+
 There are 2 options how to process the errors in Mongo:
     - Callback API (session.withTransaction)
         Automatically do start/commit transaction command. Automatically process TransientTransactionError and UnknownTransactionCommitResult errors with abort command if needed. Code much cleaner (no cycles,try/catch blocks and so on).
@@ -97,6 +98,7 @@ Example Core API:
 
 
 //************************ __ R/W RETRY __ *****************************
+
 Transactions grant ACID for couple of actions. But there are some commands that grant retry logic for single operation:
     - Retryable Write 
         driver do exactly 1 retry of the operation if get back from server error label TransientTransactionError. To grant idempotency operation used  session ID + txnNumber (operation number).
@@ -105,6 +107,7 @@ Transactions grant ACID for couple of actions. But there are some commands that 
 By default these settings are ON.
 
 //************************ __ CAUSALITY CONSISTENT SESSIONS __ *****************************
+
 4 rules:
     - Read Your Own Writes  = you'll see your data changes immediatly after you changed it (relationship W --> R for only your operations)
     - Monotonic Reads       = once you read the more fresh data you should never see the old data (relationship R --> R for any operations)

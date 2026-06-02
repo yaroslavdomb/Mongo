@@ -1,8 +1,11 @@
 // ******************************** __ LOOKUP TYPES __ *****************************
-Untill Mongo-3.6 there was only 1 type of lookup.
 
+Untill Mongo-3.6 there was only 1 type of lookup = Single Field Equality Lookup.
+On 3.6+ you got options to use pipline and let inside of lookup.
+On 5.1+ you got Concise Syntax for Subqueries 
 
 // ******************************** __ BASIC LOOKUP __ *****************************
+
     - use localField and foreignField
     - compare only with strong equality (A = B)
     - no filtering over second collection
@@ -69,8 +72,9 @@ Example:
     ]
 
 // ******************************** __ (UN)CORRELATED SUBQUERRIES __ *****************************
+
 correlation - it's a dependency between fields of current document from collection A and fields of docs in collection B.
-If the request is uncorrelated, the same data will be found for  all the docs of collection A.
+If the request is uncorrelated, the same data will be found for all the docs of collection A.
     1) Mongo execute internal pipline over collection B
     2) save results of (1) in internal cache
     3) For each doc from collection A it will take (2)
@@ -79,8 +83,31 @@ To make request uncorrelated:
     - DO NOT use let. Even if you do not use variables inside the pipline the request will not be counted as uncorrelated.
     - DO NOT use $$ 
 
+Example of uncorrelated request:
+    db.tasks.aggregate([
+        {
+            "$lookup": {                                            // no any dependency between tables, so this sub-request will be executed only 1 time
+                "from": "banned_users",
+                "pipeline": [
+                    { "$project": { "_id": 1 } } 
+                ],
+                "as": "banned_data"                                 //  after execution the result will be saved in array with name "banned_data"
+            }
+        },
+        {
+            "$match": {
+                "$expr": {
+                    "$not": { 
+                        "$in": [ "$author_id", "$banned_data._id" ] 
+                    }
+                }
+            }
+        },
+        { "$project": { "banned_data": 0 } }
+    ])
 
 // ******************************** __ CONCISE SYNTAX __ *****************************
+
 Another name = Compact $lookup. Allow you not to use let and expr.
 You still limited by strong equality between the fields only.
 
@@ -111,6 +138,7 @@ After:
     }
 
 // ******************************** __ ATLAS TRIGGERS && FUNCTIONS __ *****************************
+
 Trigger define when to do
 Function define what to do
 

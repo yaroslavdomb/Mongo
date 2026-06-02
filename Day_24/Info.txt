@@ -1,4 +1,5 @@
 //*************************** __ SHARDING __ *************************
+
 Sharding = (horizontal) splitting data between number of hosts.
 Sharded cluster consist from:
     - mongos (get request from application and ask config server where data from request stored)
@@ -13,12 +14,13 @@ Conf server know:
     - statistica of balancer
 
 Mongos save in cache routing table.
-There could be 2 types of rewuests:
+There could be 2 types of requests:
     - Targeted query. Mongos know the exactly shard where to find the data.Example: db.users.find({ userId: 42 })
     - Scatter-gather query. Mongos will need to send request to all the sharded nodes and merge the responses. Example: db.users.find({ email: "test@example.com" })
 Type depend on presenting in the request sharded key. If it's there - will be used Targeted query, otherwise Scatter-gather query.
 
 //*************************** __ SHARD KEY __ *************************
+
 SHARD KEY = immutable combination of fields (can be also a single) for each document.
 Sharded collection can hold only single shard key. 
 
@@ -32,13 +34,15 @@ Good key should have:
     - normal distribution between key data
     - no monothonic escalation (cause having such will lead to hotspot issue)
 
-//*************************** __ Chunks AND Balancer __ *************************
+//*************************** __ CHUNKS AND BALANCER __ *************************
+
 Balancer checks that number of chunks on each node will be +/- equal. If on one thre are too many it start migration. You can W/R during the migration.
 Common practice to set balancer to do his job on the night as moving data can takes a lot of resources. You can get orphans docs if the process was stopped in the middle.
 Each chunk = 64Mb(default). If you write too many data into single chunk, it will be splitted onto 2 with 50% data each.
 
 
 //*************************** __ DB SHARDING __ *************************
+
 sh.enableSharding("mydb")                               // enable sharding for mydb database 
 db.users.createIndex({ userId: "hashed" })              // crete sharded index on "users" collection of hashed type
 sh.shardCollection("mydb.users", { userId: "hashed" })  // sharding collection
@@ -47,6 +51,7 @@ db.users.getShardDistribution()                         // set chunks distributi
 
 
 //*************************** __ WITH SHARDED COLLECTION YOU CAN'T __ *************************
+
 - grant unique indexes on non-sharded key (or its prefixes). Cause it will required to ask each sharded node each doc for this field.
 - do $lookup between sharded collections. Cause it will required to connect each one doc from coll1 with each one of docs in coll2.
 - use transactions easily - you need to get confirmation from all shared nodes involved into transaction and start only after it.

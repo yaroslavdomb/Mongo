@@ -57,6 +57,7 @@ Each message has the following data:
 
 
 // ******************************** __ ELECTIONS __ *************************
+
 Condition to start elections:
     - Primary do not response over 10 sec (default) for hearbeats
     - Primary send signal for elections
@@ -65,7 +66,7 @@ Condition to start elections:
 During election client can't write (NotPrimaryError) into Mongo.
 
 Due to election can be situation that old primary with writeConcern, w:0 could fail and once return it will find that some operation do not exist on new P.
-Docs related to such operations will be moved into /data/db/rollback/ in BSON format = rollback/
+Docs related to such operations will be moved into /data/db/rollback/ in BSON format = rollback.
 To protect yourself from such situation use { writeConcern: { w: "majority", wtimeout: 5000 } } - or operation itself will fail, OR majority of replica will has updated oplogs.
 
 S1 detect that P do not answer in hearbeats. S1 set itself as Candidate, set term+1 and send broadcast msg (replSetRequestVotes) to all others Sx.

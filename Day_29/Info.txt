@@ -5,8 +5,8 @@ Can have up to
 
 //************************** __ BASE INDEX __ ****************************
 
-Used B+-tree for search. Almost no matter if it's ordered ASC or DESC (reverse scan). Allow indexing by internal fields (db.users.createIndex({ "metadata.login.date": 1 })). Allow indexing by field that is an Object. Used for requests that used the indexed field. Actually reverse scan a bit slower then forward:
-    - Read-Ahead works when we have forward read, but could not work for  reverse ordered
+Used mix of B+-tree && B-tree for search. Almost no matter if it's ordered ASC or DESC (reverse scan). Allow indexing by internal fields (db.users.createIndex({ "metadata.login.date": 1 })). Allow indexing by field that is an Object. Used for requests that used the indexed field. Actually reverse scan a bit slower then forward:
+    - Read-Ahead works when we have forward read, but could not work for reverse ordered
     - page structure and pointers
     - cache mechanism works very well for forward search but not for reverse
     - in high-loaded systems some threads could run one by one and use the same pages in cache. For reverse ordering it can lead to the concurrency
@@ -16,7 +16,7 @@ Used B+-tree for search. Almost no matter if it's ordered ASC or DESC (reverse s
     - autobalancing tree, NOT a binary !!!
     - each node has ordered array of keys(K) with pointers on sub-ranges(K+1) of data. This grant that tree will be very low (3-4 steps to reach data).
     - all data located in leavs on the lowest level
-    - all data on lowest level organized into linked list (one or two directional) - trhis allow very fast range search without trips to the parent leaves
+    - all data on lowest level organized into linked list (one or two directional) - this allow very fast range search without trips to the parent leaves
     - the tree itself (except the last level) is very compact
 
 //************************** __ COMPLEX INDEX __ ****************************

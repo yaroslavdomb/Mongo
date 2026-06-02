@@ -11,16 +11,23 @@ WT does not split cache on parts (w/r, sort/join buffers) but use the all cache 
 Better to set cache size in manual way for containers (Mongo can detect wrongly size of memory)
 
 // ************************ __ MVCC __ **************************
+
 Multi-Version Concurrency Control
 
 Before using MVCC it was negative blocking.
-With MVCC: Mongo create snapshot of DB && cache at time the request come. If it's write request, the data will be changed in snapshot and not in DB itself
+With MVCC: Mongo create snapshot of DB && cache at time the request come. If it's write request, the data will be changed in snapshot and not in DB itself.
+Snapshot it's not the all DB data, but it absolutely the same as GIT commit: you save the delta only and change the links to make your tree be updated. The issue why it was not used before: 
+ - type of storage was HDD and phisycal moves on disk while writing and craetion new version with each change.
+ - each change mean new tree, number of trees in memory should be kept till the most long operation not finished
+ - GC issues for old processors
 
 No-Steal = do not stael place on disc for non-commited data. It means once you didn't committe your changes, those changes will not come to disk, it will remain in cache memory only.
 No-Force = Even if you saved the changes, they will not go to the disk immediately
 
 
 // ************************ __ WiredTigerHS.wt __ **************************
+
+WiredTigerHS = system table to keep all the old versions of data from memory created during working by MVCC.
 Each document store 2 times - start and stop. Start = time when it became actual. Stop = time when it finished to be actual.
 Durable Timestamp = shows when we can delete the old version of document (by default 300 sec).
 Scenario: 
@@ -33,11 +40,12 @@ For P1 executed search as following:
     1) cache
     2) Data files (files on disk) 
     3) WTHS
-If data not found in 3 - returned error.
+If data not found in 3 - returned error (SnapshotTooOld). Data always comes from cache only, if it not there - it will be loaded and only then returned.
 WTHS was created to not store all the changed docs in cache. 
 
 
 // ************************ __ BLOCKING __ **************************
+
 Actually, there are 2 levels of blocking:
     on engine - it depend on tickets (128 by default) existance. Protect phisycal server system - CPU, RAM, I/O
     on lock - depend on operations that currently executedinside. Protect logic component of DB - data structure 
@@ -84,6 +92,7 @@ Issue:
     Can lead to Phantom read problem.
 
 // ************************ __ CONNECTION POOL __ **************************
+
 maxPoolSize         = max number of connections driver can open to one node. By default 100. If comes 101, it will go to queue to wait.
 minPoolSize         = number of connections driver will hold opened. By default 0. 
 maxIdleTimeMS       = TTL in milisec of idle connection. By default 0 (not limited)
@@ -121,15 +130,15 @@ Relationship:
 
 // ************************ __ COMPRESSION __ **************************
 DATA:
-    Documents compressed once writing on the disk (checkpoint)
+    Documents compressed once writing on the disk (checkpoint)? but this done not PER document, but per PAGE(32kb)! You can set type of compression per collection.
 
     Compression types:
-        - Snappy    = default type, balance between speed and efficiency
-        - Zstd      = efficiency higher, but need more resources to do it
-        - Zlib      = the most efficient, but very slow. Zstd is better
+        - Snappy    = default type, balance between speed and efficiency (Google)
+        - Zstd      = efficiency higher, but need more resources to do it (Facebook)
+        - Zlib      = the most efficient, but very slow. Zstd is much better
         - None      = rare/specific case. 
 
-    None is OK in if:
+    None is OK if:
         - you have no CPU resources at all and has very fast storage
         - data already compressed (gzip/zip/JPEG/MP4)
         - data is encrypted (compressing will not give a lot space if any)
