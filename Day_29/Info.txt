@@ -73,7 +73,7 @@ Issues:
 Recommendation: 
     always use Partial and not Sparse
 Common using case:
-    field is unique. Using sparse indexing it will allow to value to be empty OR will keep uniqueness if it exists.
+    field is unique. Using sparse indexing will allow to value to be empty OR will keep uniqueness if it exists.
 
 In compound index doc will not be indexed only if ALL the fields are missed. If at least one of the fields present - it will be in index. 
 
@@ -152,6 +152,19 @@ Examples:
 
 
 //************************** __ GEOSPATIAL INDEX __ ****************************
+
+$near and $geoNear should be first (even before the first $match) to use Geospatial Indexes. After any modification of data these indexes already are not connectred to the original geodata, so trying to use search geo after it will need to calculate sin/cos for each coordinates.
+
+For search used Geohashing algorythm. The more closest 2 points the longest common prefix in hash. 5 bits converted into symbol (Base32).
+For 3D search used compound indexes(2D + height)
+
+           IF YOU HAVE NO INDEX ON COLLECTION WITH GEO COORDINATES $geoNear WILL NOT WORK!!!!
+fatal error: "geoNear command failed: angular distance initialization failed: expansion to 2D sphere requires a 2dsphere index"
+
+But still, you can use $geoWithin that will work without geo index (but it will be COLLSCAN). When $geoWithin is better:
+    - fast changed poligone (storm on sea and you need to know if ships of your compony is inside the problematic area)
+    - need to check only inside polygone but not a distance (inside = Ray-Casting algorithm(operations >/<), distance = Haversine formula, sin cos, sqrt)
+    - small / capped collections when collscan noty a problem
 
 1) could be part of compound key
 2) could be sharded key with limitations

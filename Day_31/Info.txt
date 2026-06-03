@@ -1,0 +1,58 @@
+//******************************* __ ESR __ ******************************
+
+rule that set the order of execution the most effective selection.
+- Equality  = narrowing search space
+- Sorting   = allow to use indexes for sorting & no need to use in-memory sort if it's in the middle
+- Range     = usually not allow to use index in the futher actions
+
+//******************************* __ COLLATION __ ******************************
+
+Once create index with collation the request should use the same collation as in index. If you are not mention the collation, the index with colletion will be ignored!!!
+
+Example:
+    db.collection.find().collation({
+        locale: "en_US",
+        strength: 1,
+        caseLevel: true,
+        caseFirst: "upper",
+        numericOrdering: true,
+        alternate: "shifted",
+        maxVariable: "punct",
+        normalization: true,
+        backwards: false
+    })
+
+where:
+    locale          = the only mandatory param. If the value is "simple" the comparision goes by bytes
+    strength        = 1-5. Default 3. 1 most variable(ignore Case and diactrict), 5 is most strong(total equivalence)
+    caseLevel       = true/false = case sensitive
+    caseFirst       = upper/lower/off. Which type of letters goes first
+    numericOrdering = true/false(default). How to sort strings with numbers. False - like a string ("10" < "2"), true - like numbers
+    alternate       = non-ignorable(default)/shifted. How to process spaces and punctuation marks. Default - like others symbols.
+    maxVariable     = punct (ignore spaces AND punctuation marks)/space.(ignore spaces only) 
+    normalization   = true/false(default)
+    backwards       = true/false(default) = for French only? dependency on diactric symbols for strength level 2+.
+
+
+//******************************* __ Working Set vs RAM __ ******************************
+
+Working Set = all the indexes and data Mongo currently is working with.
+In case WS is less then accessiable RAM = all is OK.
+
+
+//******************************* __ OPTIMIZATION POINTS __ ******************************
+
+- Use differernt types of indexes (partial/sparse)
+- Decrease write performance levels
+- Use explain() to analyze slower request and chamge in appropriate
+- Use connection pool
+- In aggregation pipline - set $match and $sort as higher as possible
+- Use buckets instead of single operations
+- Use ESR
+- Use Embed/Reference according to the rules of using Embed/Reference
+- Use range/cursor for pagination and avoid skip()
+
+
+//******************************* __ PATTERNS __ ******************************
+- Attribute pattern 
+- Bucket pattern 

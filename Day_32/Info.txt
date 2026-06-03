@@ -1,0 +1,230 @@
+//******************************* __ FACET __ **************************
+
+$facet = aggregation stge that allow to run in parallel some sub-pipelines. In case one sub-piplines fails all the request will fail.
+
+Freezing        = Once coming to the facet stage all docs are "freezed". We need it to grant that each branch of sub-pipline will get the same docs as input.
+Independence    = Each sub-pipline is independent from others. sub-pipline SHOULD executed in parallel but it depend on Mongo planer and resources
+Single doc      = As result you'll get 1 doc. keys will be names of facet branches and values will be arrays of docs of each sub-pipline
+Limitations     = You can't use inside facet the following: 
+    facet                   = it prevent exponential complexity
+    out/merge               = it prevent ambiguity cause out/merge create collection and not single doc
+    indexStats/collStats    = it return the static data of collection that can't be used in facet
+    geoNear                 = should be the first operation in aggregation but it's already not so cause we have facet
+
+Also as limitation need to take in conciderence that result of facet should be 16Mb.
+
+Example:
+    db.products.aggregate([
+        { $match: { inStock: true } },
+        {
+            $facet: {
+                byCategory: [                                               // first sub-pipline
+                    { $group: { _id: "$category", count: { $sum: 1 } } }
+                ],
+                priceStats: [                                               // second sub-pipline
+                    { $group: {
+                        _id: null,
+                        avg: { $avg: "$price" },
+                        min: { $min: "$price" },
+                        max: { $max: "$price" }
+                    }}
+                ],
+                topItems: [                                                 // third sub-pipline
+                    { $sort: { rating: -1 } },
+                    { $limit: 5 },
+                    { $project: { name: 1, rating: 1 } }
+                ]
+            }
+        }
+    ])
+
+
+    Return:
+    [
+        {
+            "byCategory": [
+                { "_id": "Electronic", "count": 325 },
+                { "_id": "Cars", "count": 145 },
+                { "_id": "Home", "count": 89 }
+            ],
+            "priceStats": [
+                {
+                    "_id": null,
+                    "avg": 18250.45,
+                    "min": 50.0,
+                    "max": 915000.0
+                }
+            ],
+            "topItems": [
+                { "_id": "id1", "name": "Phone X", "rating": 4.9 },
+                { "_id": "id2", "name": "headphones Y", "rating": 4.8 },
+                { "_id": "id3", "name": "prod_2", "rating": 4.8 },
+                { "_id": "id4", "name": "prod_3", "rating": 4.7 },
+                { "_id": "id5", "name": "prod_4", "rating": 4.6 }
+            ]
+        }
+    ]
+
+//******************************* __ BUCKET __ **************************
+
+BUCKET = aggregation stage for grouping by some non-equal criteria. Grouping executed by range. This is the difference between group aggregation - in group you split by exactly aligning (for example by brand, exactly equal criteria) and here you need to split data by buckets by range (for example, between 9:00 and 12:00).
+
+There are 2 modes:
+    $bucket     = manual managing, good when you have exactly boundaries values
+    $bucketAuto = automated managing, good when you have no exactly values but want to split into equal (as close as possible) buckets 
+
+Params for bucket:
+    groupBy     = name of the field by wich we are going to split data
+    boundaries  = array of boundaries for buckets by rule [start, end)
+    default     = name of bucket that will include all the values that are out of "boundaries"
+    output      = what exactly you'll count in each bucket (by default it's a number of docs)
+
+    Example:    
+        db.products.aggregate([
+            {
+                $bucket: {
+                    groupBy: "$price",
+                    boundaries: [0, 1000, 5000, 10000],
+                    default: "Other",
+                    output: {
+                        count: { $sum: 1 },
+                        titles: { $push: "$name" }
+                    }
+                }
+            }
+        ])
+
+        Returned:
+            [
+                {
+                    "_id": 0,
+                    "count": 2,
+                    "titles": ["Socks", "Cup"]
+                },
+                {
+                    "_id": 1000,
+                    "count": 1,
+                    "titles": ["Bycicle"]
+                },
+                {
+                    "_id": "Other",
+                    "count": 1,
+                    "titles": ["Toyota"]
+                }
+            ]
+
+Params for autobucket:
+    groupBy     = name of the field by wich we are going to split data
+    buckets     = wanted number of buckets
+    granularity = strategy that give rounded boundaries for buckets
+    output      = what exactly you'll count in each bucket (by default it's a number of docs)
+
+    Examples:
+        db.products.aggregate([
+            {
+                $bucketAuto: {
+                    groupBy: "$price",
+                    buckets: 3,                         // expected 3 buckets
+                    granularity: "R5",                  // 
+                    output: {
+                        count: { $sum: 1 },
+                        avgPrice: { $avg: "$price" }
+                    }
+                }
+            }
+        ])
+
+        Returned:
+            [
+                {
+                    "_id": { "min": 0, "max": 1600 },
+                    "count": 15,
+                    "avgPrice": 840
+                },
+                {
+                    "_id": { "min": 1600, "max": 6300 },
+                    "count": 12,
+                    "avgPrice": 4100
+                },
+                {
+                    "_id": { "min": 6300, "max": 25000 },
+                    "count": 14,
+                    "avgPrice": 12000
+                }
+            ]
+
+granularity
+    Rx          = Reinar seria (a1 = 10, q = sqrtX(10), where X = x from Rx. q for R5 = sqrt 5 of (10) = 1.585, so seria r5 goes as 10,16,25,40,63, 100)
+                    Actually, the number after R has a rule: x = how many buckets will be created started from the first power of ten to the next (100). So for R5 you should get only 5 buckets. For R10 you'll get 10 buckets by 10, 12.5, 16, 20, 25, 31.5, 40, 50, 63, 80, 100.
+    E6 ... E192 = Electronic seria (counted absolutely the same as R)
+    POWERSOF2   = Boundaries will be power of 2
+    1-2-5       = Boundaries will be 10,20,50,100
+
+    Best in use:    1-2-5, R10, R20
+
+
+//******************************* __ graphLookup __ **************************
+
+Allow to check the hierarhical relationships. Could prevent cycling by holding in memory all the nodes already mentioned in previous steps. If it was visited again - it will be pruned. Search algorythm = BFS.
+
+BFS:
+    - allow to work with not ideal conditions (circles/intersections)
+    - allow to easy work with batching (read by levels)
+    - allow easelly work with depth limit
+    - no need to create logic of depth connection from starting state
+
+Example:
+    { "_id": 101,    "name": "J. Doe",   "reportsTo": 105,   "department": "Dev",            "active": true}
+    { "_id": 105,    "name": "A. Smith", "reportsTo": 110,   "department": "DevTeamLead",    "active": true}
+    { "_id": 110,    "name": "K. Brown", "reportsTo": 120,   "department": "HighTeamLead",   "active": true}
+    { "_id": 120,    "name": "L. White", "reportsTo": null,  "department": "Management",     "active": true}
+
+    db.collection.aggregate([
+    {
+        $graphLookup: {
+            from: "employees",                      // collection name on which we'll do search
+            startWith: "$reportsTo",                // take value from field $reportsTo in current doc to start search. Can be an array.
+            connectFromField: "reportsTo",          // which field we need to check to do the next step of search
+            connectToField: "_id",                  // which field we need to check to validate this is a next prooper doc, MUST have index
+            as: "managementChain",                  // name of the field (as key) with array of visited nodes (as value) in returned document 
+            maxDepth: 5,                            // max number of levels we'll visit while search. 0 means 1 step!!!
+            depthField: "lvl",                      // name of the field (as key) with distance (as value) from starting employee (+1 per step)
+            restrictSearchWithMatch: {active:true}  // additional restrictions if to count node in graph or not
+        }
+    }
+    ])
+
+Returned:
+    {
+        "_id": 101,
+        "name": "J. Doe",
+        "reportsTo": 105,
+        "department": "Dev",
+        "active": true,
+        "managementChain": [
+            {
+                "_id": 105,
+                "name": "A. Smith",
+                "reportsTo": 110,
+                "department": "DevTeamLead",
+                "active": true,
+                "lvl": 0
+            },
+            {
+                "_id": 110,
+                "name": "K. Brown",
+                "reportsTo": 120,
+                "department": "HighTeamLead",
+                "active": true,
+                "lvl": 1
+            },
+            {
+                "_id": 120,
+                "name": "L. White",
+                "reportsTo": null,
+                "department": "Management",
+                "active": true,
+                "lvl": 2
+            }
+        ]
+    }

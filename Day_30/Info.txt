@@ -1,4 +1,5 @@
 //************************* __ DATABASE PROFILER __ ***************************
+
 Write slow/any operations in capped collection system.profile (def size = 1 Mb, better to hange it to 50Mb at least). This is the most useable tool to check problemati queries in prod.
 
 db.setProfilingLevel(0)                                     // 0 = disabled, default
